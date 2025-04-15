@@ -1,7 +1,7 @@
 {
-  "name": "deeporbit-slack-bot-refactored",
+  "name": "sagan-slack-bot",
   "version": "1.0.0",
-  "description": "Refactored Slack bot integrating with AnythingLLM and GitHub.",
+  "description": "Sagan: An AI assistant Slack bot for Gravity Forms development, providing contextual help and GitHub integration.",
   "main": "src/server.js",
   "type": "module",
   "scripts": {
@@ -11,21 +11,21 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.15.0",
-    "@octokit/rest": "^20.0.1",
-    "@slack/events-api": "^3.0.1",
-    "@slack/web-api": "^7.0.2",
-    "axios": "^1.6.2",
-    "dotenv": "^16.3.1",
-    "express": "^4.18.2",
-    "form-data": "^4.0.0",
-    "morgan": "^1.10.0",
-    "node-fetch": "^3.3.2",
-    "pg": "^8.11.3",
-    "redis": "^4.6.11"
+    "@google/generative-ai": "^0.17.0", // Updated
+    "@octokit/rest": "^21.1.0", // Updated
+    "@slack/events-api": "^3.0.1", // Appears stable/latest in this line
+    "@slack/web-api": "^7.2.0", // Updated
+    "axios": "^1.7.0", // Updated
+    "dotenv": "^16.4.5", // Updated
+    "express": "^4.19.2", // Updated
+    "form-data": "^4.0.0", // Stable
+    "morgan": "^1.10.0", // Stable
+    "node-fetch": "^3.3.2", // Stable (Consider removing if using Node 18+ native fetch exclusively)
+    "pg": "^8.11.5", // Updated
+    "redis": "^4.6.13" // Updated
   },
   "devDependencies": {
-    "nodemon": "^3.0.2"
+    "nodemon": "^3.1.0" // Updated
   },
   "engines": {
     "node": ">=18.0.0"

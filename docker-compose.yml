@@ -3,35 +3,38 @@
 version: '3.8'
 
 services:
-  # Application Service (Slack Nexus Bot)
+  # Application Service (Sagan Bot)
   app:
-    container_name: slack_nexus_app # Consistent container name
+    container_name: sagan_app
     build:
       context: .
       dockerfile: Dockerfile
     env_file:
       - .env # Load environment variables from .env file
     ports:
-      - "${PORT:-3000}:3000" # Map host port (from .env or default 3000) to container port 3000
+      # Map host port (from .env variable PORT, default 3000) to container port 3000
+      - "${PORT:-3000}:3000"
     depends_on:
-      # Add dependencies if using Dockerized Redis/Postgres
-      - redis # App waits for redis to be healthy (basic check)
-      - db # App waits for db to be healthy (basic check)
+      # App should wait for Redis and DB services if they are used
+      redis:
+        condition: service_healthy # Wait for redis healthcheck
+      db:
+        condition: service_healthy # Wait for db healthcheck
     restart: unless-stopped
     networks:
-      - slack_nexus_net # Connect to custom network
+      - sagan_net # Connect to custom network
 
   # Redis Service (Optional, if using Redis via Docker)
   redis:
-    container_name: slack_nexus_redis
+    container_name: sagan_redis
     image: redis:7-alpine
     restart: unless-stopped
     volumes:
       - redis_data:/data # Persist Redis data
-    ports:
-      - "6379:6379" # Expose Redis port to host (optional, for debugging)
+    # ports: # Typically not needed to expose Redis directly to host unless debugging
+    #   - "6379:6379"
     networks:
-      - slack_nexus_net
+      - sagan_net
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -40,26 +43,27 @@ services:
 
   # PostgreSQL Service (Optional, if using Postgres via Docker)
   db:
-    container_name: slack_nexus_db
+    container_name: sagan_db
     image: postgres:15-alpine
     restart: unless-stopped
     volumes:
       - postgres_data:/var/lib/postgresql/data # Persist PostgreSQL data
     env_file:
-      - .env # Load DB credentials from .env file (POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB)
-    ports:
-      - "5432:5432" # Expose PostgreSQL port to host (optional, for debugging)
+      - .env # Load DB credentials from .env file (uses POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB)
+    # ports: # Typically not needed to expose DB directly to host unless debugging
+    #   - "5432:5432"
     networks:
-      - slack_nexus_net
+      - sagan_net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}"]
+      # Use environment variables defined in .env for the check
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-sagandb}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
 # Define Networks
 networks:
-  slack_nexus_net:
+  sagan_net: # Renamed network
     driver: bridge
 
 # Define Volumes for data persistence
