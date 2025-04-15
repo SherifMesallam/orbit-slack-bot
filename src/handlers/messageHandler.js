@@ -241,6 +241,4 @@ async function updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, chan
     catch (error) { console.warn(`[Util] Failed ${updateArgs ? 'update' : 'delete'} thinking msg:`, error.data?.error); }
 }
 
-export { handleSlackMessageEventInternal }; // Export the main handler
-
 console.log("[Message Handler] Initialized.");
