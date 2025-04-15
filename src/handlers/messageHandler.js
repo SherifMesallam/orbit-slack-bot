@@ -38,14 +38,54 @@ import {
 // import { fetchSlackHistory } from '../services/slackService.js';
 
 // --- Command Patterns using COMMAND_PREFIX ---
-const CMD_PREFIX = COMMAND_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // Escape prefix for regex
+// Helper function to escape strings for regex use (good practice)
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// --- Assuming COMMAND_PREFIX and WORKSPACE_OVERRIDE_COMMAND_PREFIX are defined ---
+// Example: export const COMMAND_PREFIX = "gh>";
+// Example: export const WORKSPACE_OVERRIDE_COMMAND_PREFIX = "#ws:";
+// -----------------------------------------------------------------------------
+
+const CMD_PREFIX = escapeRegex(COMMAND_PREFIX); // Escape prefix for regex
+
+// These seem fine as they were:
 const RELEASE_REGEX = new RegExp(`^${CMD_PREFIX}\\s*release\\s+(?<repo_id>[\\w.-]+(?:\\/[\\w.-]+)?)\\s*$`, 'i');
 const PR_REVIEW_REGEX = new RegExp(`^${CMD_PREFIX}\\s*review\\s+pr\\s+(?<owner>[\\w.-]+)\\/(?<repo>[\\w.-]+)#(?<pr_number>\\d+)\\s+#(?<workspace_slug>[\\w-]+)\\s*$`, 'i');
 const ISSUE_ANALYSIS_REGEX = new RegExp(`^${CMD_PREFIX}\\s*(?:analyze|summarize|explain)\\s+issue\\s+(?:(?<owner>[\\w.-]+)\\/(?<repo>[\\w.-]+))?#(?<issue_number>\\d+)(?:\\s+(?<user_prompt>.+))?\\s*$`, 'i');
 const GENERIC_API_REGEX = new RegExp(`^${CMD_PREFIX}\\s*api\\s+(?<api_query>.+)\\s*$`, 'i');
-const WORKSPACE_OVERRIDE_REGEX = new RegExp(`\\${WORKSPACE_OVERRIDE_COMMAND_PREFIX}(\\S+)`);
 
+// --- Fixed WORKSPACE_OVERRIDE_REGEX ---
 
+// 1. Escape the override prefix first
+const ESCAPED_WS_PREFIX = escapeRegex(WORKSPACE_OVERRIDE_COMMAND_PREFIX);
+
+// 2. Define the RegExp using the escaped prefix
+const WORKSPACE_OVERRIDE_REGEX = new RegExp(
+    `^${ESCAPED_WS_PREFIX}` + // Start anchor and escaped prefix
+    `(?<workspace_slug>\\S+)` + // Named group capturing one or more non-whitespace chars
+    `\\s*$` , // Optional trailing whitespace and end anchor
+    'i' // Case-insensitive flag
+);
+
+/*
+Explanation of WORKSPACE_OVERRIDE_REGEX fixes:
+- Escapes WORKSPACE_OVERRIDE_COMMAND_PREFIX using the same robust method as CMD_PREFIX.
+- Removes the incorrect leading '\\' before the prefix.
+- Adds ^ and $ anchors to match the entire string.
+- Uses a named capture group '(?<workspace_slug>\\S+)' for consistency.
+- Adds the 'i' flag for case-insensitivity (assuming this is desired).
+- Adds '\\s*$' to allow optional trailing whitespace before the end of the string.
+*/
+
+// --- Alternative: If it's truly meant to find the pattern ANYWHERE (unanchored) ---
+/*
+const ESCAPED_WS_PREFIX_UNANCHORED = escapeRegex(WORKSPACE_OVERRIDE_COMMAND_PREFIX);
+const WORKSPACE_OVERRIDE_REGEX_UNANCHORED = new RegExp(
+    `${ESCAPED_WS_PREFIX_UNANCHORED}` + // Escaped prefix
+    `(?<workspace_slug>\\S+)`, // Named group for non-whitespace chars following prefix
+    'ig' // Case-insensitive, maybe global 'g' if finding multiple occurrences?
+);
+*/
 /**
  * Handles incoming message or app_mention events.
  * Checks for commands, otherwise routes to the LLM.
