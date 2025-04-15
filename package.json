@@ -11,21 +11,21 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.17.0", // Updated
-    "@octokit/rest": "^21.1.0", // Updated
-    "@slack/events-api": "^3.0.1", // Appears stable/latest in this line
-    "@slack/web-api": "^7.2.0", // Updated
-    "axios": "^1.7.0", // Updated
-    "dotenv": "^16.4.5", // Updated
-    "express": "^4.19.2", // Updated
-    "form-data": "^4.0.0", // Stable
-    "morgan": "^1.10.0", // Stable
-    "node-fetch": "^3.3.2", // Stable (Consider removing if using Node 18+ native fetch exclusively)
-    "pg": "^8.11.5", // Updated
-    "redis": "^4.6.13" // Updated
+    "@google/generative-ai": "^0.17.0",
+    "@octokit/rest": "^21.1.0",
+    "@slack/events-api": "^3.0.1",
+    "@slack/web-api": "^7.2.0",
+    "axios": "^1.7.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "form-data": "^4.0.0",
+    "morgan": "^1.10.0",
+    "node-fetch": "^3.3.2",
+    "pg": "^8.11.5",
+    "redis": "^4.6.13"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0" // Updated
+    "nodemon": "^3.1.0"
   },
   "engines": {
     "node": ">=18.0.0"
