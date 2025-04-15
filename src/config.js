@@ -58,13 +58,13 @@ export const WORKSPACE_OVERRIDE_COMMAND_PREFIX = '#';
 export const intentRoutingEnabled = process.env.INTENT_ROUTING_ENABLED === 'true'; // Default: false
 
 /** @type {string} Name of the intent detection provider to use ('none', 'gemini', etc.). Matches keys in intentDetectionService.js. */
-export const intentProvider = process.env.INTENT_PROVIDER || 'none'; // Default: 'none'
+export const intentProvider = process.env.INTENT_PROVIDER || 'gemini'; // Default: 'none'
 
 /** @type {number} Minimum confidence score (0-1) required to act upon a detected intent (used in future routing logic). */
 export const intentConfidenceThreshold = parseFloat(process.env.INTENT_CONFIDENCE_THRESHOLD || '0.7'); // Default: 0.7
 
 /** @type {string | null} API Key specifically for the Gemini intent provider. Required if intentProvider is 'gemini'. */
-export const geminiApiKey = process.env.GEMINI_API_KEY || null; // Default: null
+export const geminiApiKey = process.env.GEMINI_API_KEY || "AIzaSyBoQYCb5EoJauUlf4iXdrsRvsBWnc7Obto"; // Default: null
 
 /** @type {string[]} Optional: List of known intent names. Might be used by providers or routing logic. */
 export const possibleIntents = JSON.parse(process.env.POSSIBLE_INTENTS || '[]'); // Default: []
