@@ -1,4 +1,3 @@
-
 // src/services/index.js
 // Main entry point for exporting service clients and functions.
 
@@ -11,16 +10,21 @@ export { dbPool, storeFeedback, getAnythingLLMThreadMapping, storeAnythingLLMThr
 // Export items from githubService
 export { octokit, getLatestRelease, getPrDetailsForReview, getGithubIssueDetails, callGithubApi } from './githubService.js';
 
-// Export items from llmService
-export { queryLlm, createNewAnythingLLMThread, getWorkspaces, determineInitialWorkspace } from './llmService.js';
+// Export items from llmService (Refactored - only thread/query)
+export { queryLlm, createNewAnythingLLMThread } from './llmService.js';
 
 // Export items from slackService
 export { slackClient, slackEvents, postSlackMessage, updateSlackMessage, deleteSlackMessage, fetchSlackHistory } from './slackService.js';
 
-// Export items from workspaceService (if created separately)
-// export { determineWorkspace, getWorkspaces } from './workspaceService.js'; // Example if moved
+// Export items from workspaceService (New)
+export { determineWorkspace, getWorkspaces } from './workspaceService.js';
 
 // Export shutdown function
 export { shutdownServices } from './shutdown.js';
+
+// Export items from intentDetectionService (from src/ai)
+// Ensure the path is correct relative to this index.js file
+export { detectIntentAndWorkspace } from '../ai/intentDetectionService.js';
+
 
 console.log("[Services Index] Service functions exported.");

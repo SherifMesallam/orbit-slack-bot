@@ -1,4 +1,3 @@
-
 import dotenv from 'dotenv';
 import process from 'process'; // Ensure process is available for process.env and process.exit
 
@@ -7,7 +6,7 @@ dotenv.config();
 
 /**
  * =============================================================================
- *                           SLACK CONFIGURATION
+ * SLACK CONFIGURATION
  * =============================================================================
  */
 
@@ -29,7 +28,7 @@ export const developerId = process.env.DEVELOPER_ID;
 
 /**
  * =============================================================================
- *                       WORKSPACE / ROUTING CONFIGURATION
+ * WORKSPACE / ROUTING CONFIGURATION
  * =============================================================================
  */
 
@@ -45,13 +44,38 @@ export const workspaceMapping = JSON.parse(process.env.WORKSPACE_MAPPING || '{}'
 /** @type {string | null} Default AnythingLLM workspace slug if no user or channel mapping found. */
 export const fallbackWorkspace = process.env.FALLBACK_WORKSPACE_SLUG || null;
 
-/** @type {string} Prefix character for manually overriding workspace in general chat (e.g., #). */
+/** @type {string} Prefix character for manually overriding workspace in general chat (e.g., #). Kept for reference, but routing primarily uses determineWorkspace now. */
 export const WORKSPACE_OVERRIDE_COMMAND_PREFIX = '#';
 
 
 /**
  * =============================================================================
- *                        ANYTHINGLLM CONFIGURATION
+ * INTENT DETECTION CONFIGURATION (New)
+ * =============================================================================
+ */
+
+/** @type {boolean} Master switch to enable/disable the intent detection step in messageHandler. */
+export const intentRoutingEnabled = process.env.INTENT_ROUTING_ENABLED === 'true'; // Default: false
+
+/** @type {string} Name of the intent detection provider to use ('none', 'gemini', etc.). Matches keys in intentDetectionService.js. */
+export const intentProvider = process.env.INTENT_PROVIDER || 'none'; // Default: 'none'
+
+/** @type {number} Minimum confidence score (0-1) required to act upon a detected intent (used in future routing logic). */
+export const intentConfidenceThreshold = parseFloat(process.env.INTENT_CONFIDENCE_THRESHOLD || '0.7'); // Default: 0.7
+
+/** @type {string | null} API Key specifically for the Gemini intent provider. Required if intentProvider is 'gemini'. */
+export const geminiApiKey = process.env.GEMINI_API_KEY || null; // Default: null
+
+/** @type {string[]} Optional: List of known intent names. Might be used by providers or routing logic. */
+export const possibleIntents = JSON.parse(process.env.POSSIBLE_INTENTS || '[]'); // Default: []
+
+/** @type {string[]} Optional: List of message prefixes that could trigger intent detection explicitly (if needed). */
+export const intentPrefixes = JSON.parse(process.env.INTENT_PREFIXES || '[]'); // Default: []
+
+
+/**
+ * =============================================================================
+ * ANYTHINGLLM CONFIGURATION
  * =============================================================================
  */
 
@@ -64,7 +88,7 @@ export const anythingLLMApiKey = process.env.LLM_API_KEY;
 
 /**
  * =============================================================================
- *                        GITHUB FEATURE CONFIGURATION
+ * GITHUB FEATURE CONFIGURATION
  * =============================================================================
  */
 
@@ -83,7 +107,7 @@ export const GITHUB_OWNER = process.env.GITHUB_OWNER || 'gravityforms';
 
 /**
  * =============================================================================
- *                     INFRASTRUCTURE & BEHAVIOR CONFIGURATION
+ * INFRASTRUCTURE & BEHAVIOR CONFIGURATION
  * =============================================================================
  */
 
@@ -99,22 +123,22 @@ export const databaseUrl = process.env.DATABASE_URL || null;
 /** @type {string} Prefix string required for text-based commands (e.g., gh>). */
 export const COMMAND_PREFIX = "gh>";
 
-/** @type {number} Max characters allowed in a single Slack text block element. */
-export const MAX_SLACK_BLOCK_TEXT_LENGTH = 2950;
+/** @type {number} Max characters allowed in a single Slack text block element (approximate). */
+export const MAX_SLACK_BLOCK_TEXT_LENGTH = 2950; // Slack limit is 3000 for mrkdwn text obj
 
 /** @type {number} Max characters allowed in a single Slack code block element (within preformatted). */
-export const MAX_SLACK_BLOCK_CODE_LENGTH = process.env.MAX_SLACK_BLOCK_CODE_LENGTH ? parseInt(process.env.MAX_SLACK_BLOCK_CODE_LENGTH, 10) : 2800;
+export const MAX_SLACK_BLOCK_CODE_LENGTH = process.env.MAX_SLACK_BLOCK_CODE_LENGTH ? parseInt(process.env.MAX_SLACK_BLOCK_CODE_LENGTH, 10) : 2800; // Keep slightly under limit
 
 /** @type {string} Text command trigger to reset conversation history (if implemented). */
 export const RESET_CONVERSATION_COMMAND = 'reset conversation';
 
 /** @type {number} Minimum character length for an LLM response to be considered "substantive" enough for feedback buttons. */
-export const MIN_SUBSTANTIVE_RESPONSE_LENGTH = process.env.MIN_SUBSTANTIVE_RESPONSE_LENGTH ? parseInt(process.env.MIN_SUBSTANTIVE_RESPONSE_LENGTH, 10) : 100;
+export const MIN_SUBSTANTIVE_RESPONSE_LENGTH = process.env.MIN_SUBSTANTIVE_RESPONSE_LENGTH ? parseInt(process.env.MIN_SUBSTANTIVE_RESPONSE_LENGTH, 10) : 100; // Default: 100 chars
 
 
 /**
  * =============================================================================
- *                         CACHE CONFIGURATION (TTL in seconds)
+ * CACHE CONFIGURATION (TTL in seconds)
  * =============================================================================
  */
 
@@ -132,7 +156,7 @@ export const WORKSPACE_LIST_CACHE_TTL = 3600; // 1 hour
 
 /**
  * =============================================================================
- *                            REDIS KEY PREFIXES
+ * REDIS KEY PREFIXES
  * =============================================================================
  */
 
@@ -148,7 +172,7 @@ export const WORKSPACE_LIST_CACHE_KEY = 'anythingllm_workspaces';
 
 /**
  * =============================================================================
- *                            CONFIGURATION VALIDATION
+ * CONFIGURATION VALIDATION
  * =============================================================================
  */
 
@@ -172,28 +196,37 @@ export function validateConfig() {
 
     // Workspace Configuration Warnings
     if (!fallbackWorkspace && !enableUserWorkspaces && (!workspaceMapping || Object.keys(workspaceMapping).length === 0)) {
-        warnings.push("No primary workspace configuration found (FALLBACK_WORKSPACE_SLUG, WORKSPACE_MAPPING, or ENABLE_USER_WORKSPACES + SLACK_USER_WORKSPACE_MAPPING). Default LLM routing might fail.");
+        warnings.push("No primary workspace configuration found (FALLBACK_WORKSPACE_SLUG, WORKSPACE_MAPPING, or ENABLE_USER_WORKSPACES + SLACK_USER_WORKSPACE_MAPPING). Default LLM routing might fail if workspace cannot be determined.");
     }
     if (enableUserWorkspaces && (!userWorkspaceMapping || Object.keys(userWorkspaceMapping).length === 0)) {
         warnings.push("ENABLE_USER_WORKSPACES is true, but SLACK_USER_WORKSPACE_MAPPING is empty/invalid.");
     }
 
+    // Intent Detection Warnings
+    if (intentProvider === 'gemini' && !geminiApiKey) {
+        warnings.push("INTENT_PROVIDER is set to 'gemini', but GEMINI_API_KEY is missing. Intent detection will fail to use Gemini.");
+    }
+    if (intentRoutingEnabled && intentProvider === 'none') {
+        warnings.push("INTENT_ROUTING_ENABLED is true, but INTENT_PROVIDER is 'none'. Intent detection step will run but won't detect anything.");
+    }
+    if (isNaN(intentConfidenceThreshold) || intentConfidenceThreshold < 0 || intentConfidenceThreshold > 1) {
+         warnings.push(`Invalid INTENT_CONFIDENCE_THRESHOLD value: "${process.env.INTENT_CONFIDENCE_THRESHOLD}". Must be a number between 0 and 1. Using default: ${intentConfidenceThreshold}`);
+    }
+
     // Optional Infrastructure Warnings
-    if (!redisUrl) warnings.push("REDIS_URL not set. Event deduplication disabled.");
+    if (!redisUrl) warnings.push("REDIS_URL not set. Event deduplication and workspace caching via Redis disabled.");
     if (!databaseUrl) warnings.push("DATABASE_URL not set. Feedback and Thread Mapping disabled (will log to console).");
 
     // GitHub Feature Warnings/Errors
     if (!githubToken) {
-        // Make this an error if GitHub commands are considered essential
-        // errors.push("GITHUB_TOKEN");
         warnings.push("GITHUB_TOKEN not set. GitHub features (`gh>`, `/gh-*`) disabled.");
     } else {
         // Only warn about dependent configs if the token *is* set
         if (!githubWorkspaceSlug) {
-            warnings.push("GITHUB_TOKEN set, but GITHUB_WORKSPACE_SLUG missing. Generic API commands (`gh> api`, `/gh-api`) may fail.");
+            warnings.push("GITHUB_TOKEN set, but GITHUB_WORKSPACE_SLUG missing. Generic API commands (`gh> api`, `/gh-api`) may fail to generate API calls.");
         }
         if (!formatterWorkspaceSlug) {
-            warnings.push("GITHUB_TOKEN set, but FORMATTER_WORKSPACE_SLUG missing. API responses (`gh> api`, `/gh-api`) will be raw JSON.");
+            warnings.push("GITHUB_TOKEN set, but FORMATTER_WORKSPACE_SLUG missing. API responses from `gh> api`/`/gh-api` will be raw JSON.");
         }
     }
 
@@ -210,3 +243,6 @@ export function validateConfig() {
 
     console.log("[Config] Configuration validation complete.");
 }
+
+// Automatically validate config when this module is loaded.
+// validateConfig(); // Consider calling this explicitly in server.js instead if preferred.
