@@ -1,0 +1,70 @@
+# docker-compose.yml
+
+version: '3.8'
+
+services:
+  # Application Service (Slack Nexus Bot)
+  app:
+    container_name: slack_nexus_app # Consistent container name
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env # Load environment variables from .env file
+    ports:
+      - "${PORT:-3000}:3000" # Map host port (from .env or default 3000) to container port 3000
+    depends_on:
+      # Add dependencies if using Dockerized Redis/Postgres
+      - redis # App waits for redis to be healthy (basic check)
+      - db # App waits for db to be healthy (basic check)
+    restart: unless-stopped
+    networks:
+      - slack_nexus_net # Connect to custom network
+
+  # Redis Service (Optional, if using Redis via Docker)
+  redis:
+    container_name: slack_nexus_redis
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data # Persist Redis data
+    ports:
+      - "6379:6379" # Expose Redis port to host (optional, for debugging)
+    networks:
+      - slack_nexus_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL Service (Optional, if using Postgres via Docker)
+  db:
+    container_name: slack_nexus_db
+    image: postgres:15-alpine
+    restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql/data # Persist PostgreSQL data
+    env_file:
+      - .env # Load DB credentials from .env file (POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB)
+    ports:
+      - "5432:5432" # Expose PostgreSQL port to host (optional, for debugging)
+    networks:
+      - slack_nexus_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# Define Networks
+networks:
+  slack_nexus_net:
+    driver: bridge
+
+# Define Volumes for data persistence
+volumes:
+  redis_data:
+    driver: local
+  postgres_data:
+    driver: local

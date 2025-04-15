@@ -1,0 +1,14 @@
+# Ignore development and local files
+.env
+.git
+.gitignore
+.dockerignore
+node_modules
+npm-debug.log*
+Dockerfile
+README.md
+# Add any other files/directories you don't need in the final image
+# e.g., test directories, local config overrides
+test/
+*.log
+temp_exports/

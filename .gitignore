@@ -1,0 +1,54 @@
+# .gitignore
+
+# Node dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment variables file
+.env
+*.env
+.env.*
+!.env.example # Keep the example file
+
+# Docker files (sometimes managed separately)
+# Dockerfile # Keep if you want it versioned
+# docker-compose.yml # Keep if you want it versioned
+# .dockerignore # Keep if you want it versioned
+
+# Build output (if any)
+dist/
+build/
+out/
+
+# Logs
+logs/
+*.log
+*.log.*
+
+# Temporary files
+temp/
+temp_exports/
+*.tmp
+*.swp
+*.swo
+
+# IDE and OS specific files
+.idea/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.csproj.user
+Thumbs.db
+.DS_Store
+
+# Coverage output
+coverage/
+lcov.info
+
+# Optional: Add any other build artifacts or local config files here
+# e.g., local_settings.js
