@@ -10,6 +10,7 @@ import {
     githubToken,
     COMMAND_PREFIX,
     WORKSPACE_OVERRIDE_COMMAND_PREFIX,
+	FEEDBACK_SYSTEM_ENABLED,
     // Import new config flags for intent routing
     intentRoutingEnabled,
     intentConfidenceThreshold,
@@ -46,13 +47,22 @@ import {
 } from './commandHandler.js'; // Or import from './intentHandler.js' later
 
 // --- Command Patterns ---
+
 const CMD_PREFIX = COMMAND_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // Escape prefix
-const RELEASE_REGEX = new RegExp(`^${CMD_PREFIX}\\s*release\\s+(?<repo_id>[\\w.-]+(?:\\/[\\w.-]+)?)\\s*$`, 'i');
+const RELEASE_REGEX = new RegExp(`^${CMD_PREFIX}\\s*latest\\s+(?<repo_id>[\\w.-]+(?:\\/[\\w.-]+)?)\\s*\\??$`, 'i');
 const PR_REVIEW_REGEX = new RegExp(`^${CMD_PREFIX}\\s*review\\s+pr\\s+(?<owner>[\\w.-]+)\\/(?<repo>[\\w.-]+)#(?<pr_number>\\d+)\\s+#(?<workspace_slug>[\\w-]+)\\s*$`, 'i');
 const ISSUE_ANALYSIS_REGEX = new RegExp(`^${CMD_PREFIX}\\s*(?:analyze|summarize|explain)\\s+issue\\s+(?:(?<owner>[\\w.-]+)\\/(?<repo>[\\w.-]+))?#(?<issue_number>\\d+)(?:\\s*#(?<workspace_slug>[\\w-]+))?(?:\\s+(?<user_prompt>.+))?\\s*$`, 'i');
 const GENERIC_API_REGEX = new RegExp(`^${CMD_PREFIX}\\s*api\\s+(?<api_query>.+)\\s*$`, 'i');
 const WORKSPACE_OVERRIDE_REGEX = new RegExp(`\\${WORKSPACE_OVERRIDE_COMMAND_PREFIX}(\\S+)`);
 
+/**
+ * Helper function to create a delay.
+ * @param {number} ms - Milliseconds to wait.
+ * @returns {Promise<void>}
+ */
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 /**
  * Helper to update or delete the initial "Processing..." message.
@@ -72,6 +82,7 @@ async function updateOrDeleteThinkingMessage(thinkingMessageTsOrPromise, slack, 
     try {
         ts = await Promise.resolve(thinkingMessageTsOrPromise);
         if (!ts) return;
+		await sleep( 100 );
         if (updateArgs && typeof updateArgs === 'object') {
             const updatePayload = { channel: channel, ts: ts, text: updateArgs.text || "Processing...", ...updateArgs };
             await slack.chat.update(updatePayload);
@@ -130,7 +141,7 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
         return;
     }
 
-    // --- 4. Check for Specific `gh>` Commands ---
+    // --- 4. Check for Specific `gh:` Commands ---
     let commandHandled = false; // Flag for explicit commands
     const isPotentialGhCommand = cleanedQuery.toLowerCase().startsWith(COMMAND_PREFIX);
 
@@ -150,7 +161,7 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
         // --- Release Command ---
         match = cleanedQuery.match(RELEASE_REGEX);
         if (match?.groups?.repo_id) {
-            console.log("[Msg Handler] Matched 'gh> release'.");
+            console.log("[Msg Handler] Matched 'gh: latest'.");
             commandHandled = await handleReleaseInfoCommand(match.groups.repo_id, replyTarget, slack, octokit, thinkingMessageTs, channelId);
         }
 
@@ -158,14 +169,14 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
         if (!commandHandled) {
             match = cleanedQuery.match(PR_REVIEW_REGEX);
             if (match?.groups) {
-                 console.log("[Msg Handler] Matched 'gh> review pr'.");
+                 console.log("[Msg Handler] Matched 'gh: review pr'.");
                  const { owner, repo, pr_number, workspace_slug } = match.groups;
                  const prNum = parseInt(pr_number, 10);
                  if (owner && repo && !isNaN(prNum) && workspace_slug) {
                      commandHandled = await handlePrReviewCommand( owner, repo, prNum, workspace_slug, replyTarget, channelId, slack, octokit, thinkingMessageTs );
                  } else {
                      console.warn("[Msg Handler] Invalid PR Review params:", match.groups);
-                     await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { text: `❌ Invalid format. Use: \`gh> review pr owner/repo#number #workspace\`` });
+                     await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { text: `❌ Invalid format. Use: \`gh: review pr owner/repo#number #workspace\`` });
                      commandHandled = true;
                  }
             }
@@ -175,7 +186,7 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
         if (!commandHandled) {
             match = cleanedQuery.match(ISSUE_ANALYSIS_REGEX);
             if (match?.groups) {
-                 console.log("[Msg Handler] Matched 'gh> analyze issue'.");
+                 console.log("[Msg Handler] Matched 'gh: analyze issue'.");
                  const { owner = GITHUB_OWNER, repo = 'backlog', issue_number, workspace_slug: explicitWs, user_prompt } = match.groups;
                  const issueNum = parseInt(issue_number, 10);
 
@@ -217,7 +228,7 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                     }
                  } else {
                      console.warn("[Msg Handler] Invalid Issue Analysis number:", match.groups.issue_number);
-                     await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { text: `❌ Invalid issue number. Use format: \`gh> analyze issue [#123 | owner/repo#123] [#optional-ws]\`` });
+                     await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { text: `❌ Invalid issue number. Use format: \`gh: analyze issue [#123 | owner/repo#123] [#optional-ws]\`` });
                      commandHandled = true;
                  }
             }
@@ -227,15 +238,15 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
         if (!commandHandled) {
             match = cleanedQuery.match(GENERIC_API_REGEX);
             if (match?.groups?.api_query) {
-                console.log("[Msg Handler] Matched generic 'gh> api'.");
+                console.log("[Msg Handler] Matched generic 'gh: api'.");
                 commandHandled = await handleGithubApiCommand( match.groups.api_query, replyTarget, channelId, slack, thinkingMessageTs, githubWorkspaceSlug, formatterWorkspaceSlug );
             }
         }
 
-        // --- Unknown gh> Command ---
+        // --- Unknown gh: Command ---
         if (isPotentialGhCommand && !commandHandled) {
              console.warn(`[Msg Handler] Unknown command starting with '${COMMAND_PREFIX}': ${cleanedQuery}`);
-             await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { text: `❓ Unknown command. Try \`gh> release ...\`, \`gh> review ...\`, \`gh> analyze ...\`, or \`gh> api ...\`.` });
+             await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { text: `❓ Unknown command. Try \`gh: latest {add-on name}\`, \`gh: review {owner}/{repo}#{number} #workspace\`, \`gh: analyze #{issue number}\`, or \`gh: api natural language lookup\`.` });
              commandHandled = true;
         }
     } // End of `if (isPotentialGhCommand)`
@@ -398,7 +409,7 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                     }
 
                     // --- Step 5f: Post Feedback Buttons ---
-                    if (lastMessageTs && isSubstantive) {
+                    if (lastMessageTs && isSubstantive && FEEDBACK_SYSTEM_ENABLED ) {
                         try {
                             const feedbackButtons = [
                                  { type: "button", text: { type: "plain_text", text: "👎", emoji: true }, style: "danger", value: "bad", action_id: "feedback_bad" },

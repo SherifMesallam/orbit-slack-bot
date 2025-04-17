@@ -42,7 +42,7 @@ export const userWorkspaceMapping = JSON.parse(process.env.SLACK_USER_WORKSPACE_
 export const workspaceMapping = JSON.parse(process.env.WORKSPACE_MAPPING || '{}');
 
 /** @type {string | null} Default AnythingLLM workspace slug if no user or channel mapping found. */
-export const fallbackWorkspace = process.env.FALLBACK_WORKSPACE_SLUG || null;
+export const fallbackWorkspace = process.env.FALLBACK_WORKSPACE_SLUG || 'all';
 
 /** @type {string} Prefix character for manually overriding workspace in general chat (e.g., #). Kept for reference, but routing primarily uses determineWorkspace now. */
 export const WORKSPACE_OVERRIDE_COMMAND_PREFIX = '#';
@@ -64,7 +64,7 @@ export const intentProvider = process.env.INTENT_PROVIDER || 'gemini'; // Defaul
 export const intentConfidenceThreshold = parseFloat(process.env.INTENT_CONFIDENCE_THRESHOLD || '0.7'); // Default: 0.7
 
 /** @type {string | null} API Key specifically for the Gemini intent provider. Required if intentProvider is 'gemini'. */
-export const geminiApiKey = process.env.GEMINI_API_KEY || "AIzaSyBoQYCb5EoJauUlf4iXdrsRvsBWnc7Obto"; // Default: null
+export const geminiApiKey = process.env.GEMINI_API_KEY || ""; // Default: null
 
 /** @type {string[]} Optional: List of known intent names. Might be used by providers or routing logic. */
 export const possibleIntents = JSON.parse(process.env.POSSIBLE_INTENTS || '[]'); // Default: []
@@ -95,13 +95,13 @@ export const anythingLLMApiKey = process.env.LLM_API_KEY;
 /** @type {string | null} GitHub Personal Access Token (PAT) with appropriate scopes (repo, read:user). REQUIRED for GitHub features. */
 export const githubToken = process.env.GITHUB_TOKEN || null;
 
-/** @type {string | null} AnythingLLM workspace slug used for the generic API command (`gh> api`, `/gh-api`) to generate API call details. REQUIRED for generic API command. */
+/** @type {string | null} AnythingLLM workspace slug used for the generic API command (`gh: api`, `/gh-api`) to generate API call details. REQUIRED for generic API command. */
 export const githubWorkspaceSlug = process.env.GITHUB_WORKSPACE_SLUG || null;
 
 /** @type {string | null} Optional AnythingLLM workspace slug used to format JSON responses from the generic API command into Markdown. */
 export const formatterWorkspaceSlug = process.env.FORMATTER_WORKSPACE_SLUG || null;
 
-/** @type {string} Default GitHub owner username/organization for commands unless specified otherwise (e.g., `gh> analyze issue #123` defaults to this owner). */
+/** @type {string} Default GitHub owner username/organization for commands unless specified otherwise (e.g., `gh: analyze issue #123` defaults to this owner). */
 export const GITHUB_OWNER = process.env.GITHUB_OWNER || 'gravityforms';
 
 
@@ -120,8 +120,8 @@ export const redisUrl = process.env.REDIS_URL || null;
 /** @type {string | null} Connection URL for PostgreSQL database (e.g., postgresql://user:pass@host:port/db). Optional, enables feedback/thread mapping. */
 export const databaseUrl = process.env.DATABASE_URL || null;
 
-/** @type {string} Prefix string required for text-based commands (e.g., gh>). */
-export const COMMAND_PREFIX = "gh>";
+/** @type {string} Prefix string required for text-based commands (e.g., gh:). */
+export const COMMAND_PREFIX = "gh:";
 
 /** @type {number} Max characters allowed in a single Slack text block element (approximate). */
 export const MAX_SLACK_BLOCK_TEXT_LENGTH = 2950; // Slack limit is 3000 for mrkdwn text obj
@@ -135,6 +135,7 @@ export const RESET_CONVERSATION_COMMAND = 'reset conversation';
 /** @type {number} Minimum character length for an LLM response to be considered "substantive" enough for feedback buttons. */
 export const MIN_SUBSTANTIVE_RESPONSE_LENGTH = process.env.MIN_SUBSTANTIVE_RESPONSE_LENGTH ? parseInt(process.env.MIN_SUBSTANTIVE_RESPONSE_LENGTH, 10) : 100; // Default: 100 chars
 
+export const FEEDBACK_SYSTEM_ENABLED = process.env.FEEDBACK_SYSTEM_ENABLED || false;
 
 /**
  * =============================================================================
@@ -219,14 +220,14 @@ export function validateConfig() {
 
     // GitHub Feature Warnings/Errors
     if (!githubToken) {
-        warnings.push("GITHUB_TOKEN not set. GitHub features (`gh>`, `/gh-*`) disabled.");
+        warnings.push("GITHUB_TOKEN not set. GitHub features (`gh:`, `/gh-*`) disabled.");
     } else {
         // Only warn about dependent configs if the token *is* set
         if (!githubWorkspaceSlug) {
-            warnings.push("GITHUB_TOKEN set, but GITHUB_WORKSPACE_SLUG missing. Generic API commands (`gh> api`, `/gh-api`) may fail to generate API calls.");
+            warnings.push("GITHUB_TOKEN set, but GITHUB_WORKSPACE_SLUG missing. Generic API commands (`gh: api`, `/gh-api`) may fail to generate API calls.");
         }
         if (!formatterWorkspaceSlug) {
-            warnings.push("GITHUB_TOKEN set, but FORMATTER_WORKSPACE_SLUG missing. API responses from `gh> api`/`/gh-api` will be raw JSON.");
+            warnings.push("GITHUB_TOKEN set, but FORMATTER_WORKSPACE_SLUG missing. API responses from `gh: api`/`/gh-api` will be raw JSON.");
         }
     }
 

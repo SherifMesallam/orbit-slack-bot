@@ -1,4 +1,3 @@
-
 // src/utils/formattingService.js
 // Contains functions related to text extraction, splitting, and Slack formatting.
 
@@ -203,61 +202,87 @@ export function extractTextAndCode(rawText) {
 
 /**
  * Parses simple inline markdown formatting (**bold**, `code`, <links>) within a text segment.
- * Returns an array of Slack rich text elements suitable for a rich_text_section.
- * Note: Does NOT handle block-level elements. Ignores italics (*text* or _text_).
+ * Returns an array of Slack rich text elements suitable for a rich_text_section block.
+ * Note: Does NOT handle block-level elements or italics (*text* or _text*).
+ * Handles Slack's native links (<url|text>) and standard Markdown links ([text](url)).
+ *
  * @param {string} text - The text segment to parse.
- * @returns {Array<object>} An array of Slack rich text elements.
+ * @returns {Array<object>} An array of Slack rich text elements (type: "text" or type: "link").
  */
 function parseInlineFormatting(text) {
-    const elements = [];
-    // Regex breakdown:
-    // Group 1: Match known formats OR
-    // Group 6: Match plain text segment
-    // Known Formats:
-    //   Group 2: \*\*(.*?)\*\* : Bold (**text**) content in group 3
-    //   Group 4: `(.*?)`     : Code (`code`) content in group 5
-    //   Group 6: <(https?:\/\/[^|>]+)(?:\|([^>]+))?> : Links (<http://url|text> or <http://url>)
-    //                                                    URL in group 7, Optional Text in group 8
-    const regex = /(\*\*(.*?)\*\*|`(.*?)`|<(https?:\/\/[^|>]+)(?:\|([^>]+))?>)|([^`*<]+)/g;
-    let match;
-    let lastIndex = 0;
-
-    while ((match = regex.exec(text)) !== null) {
-        // Add plain text preceding the current match
-        if (match.index > lastIndex) {
-            elements.push({ type: "text", text: text.substring(lastIndex, match.index) });
-        }
-
-        // Extract matched groups
-        const boldContent = match[2];
-        const codeContent = match[3];
-        const linkUrl = match[4];
-        const linkText = match[5];
-        const plainTextSegment = match[6]; // This captures plain text BETWEEN formatted elements
-
-        // Add the formatted element or the plain text segment
-        if (boldContent !== undefined) {
-            elements.push({ type: "text", text: boldContent, style: { bold: true } });
-        } else if (codeContent !== undefined) {
-            elements.push({ type: "text", text: codeContent, style: { code: true } });
-        } else if (linkUrl) {
-            // Use provided text or fallback to the URL itself if text is missing
-            elements.push({ type: "link", url: linkUrl, text: linkText || linkUrl });
-        } else if (plainTextSegment) {
-            // This group captures runs of plain text
-             elements.push({ type: "text", text: plainTextSegment });
-        }
-
-        lastIndex = regex.lastIndex; // Update position for next iteration
+    if (!text) {
+        return []; // Return empty array for empty or null input
     }
 
-    // Add any remaining plain text after the last match
-    if (lastIndex < text.length) {
-        elements.push({ type: "text", text: text.substring(lastIndex) });
+    const elements = [];
+    let currentIndex = 0;
+
+    // Regex using named capture groups for clarity and robustness.
+    // Added italic (_content_) and strikethrough (~content~).
+    // Using lookarounds (?<!\w) and (?!\w) to avoid matching within words.
+    // Note: Lookbehind (?<!) might have compatibility issues in very old JS environments, but is standard now.
+    const ALL_FORMATS_RE = new RegExp(
+        // Bold: **content** -> captures 'content'
+        `\\*\\*(?<bold_content>.*?)\\*\\*` +
+        // Italic: _content_ -> captures 'content' (requires non-word boundary or start/end)
+        `|(?<!\\w)_(?<italic_content>.+?)_(?!\\w)` +
+         // Strikethrough: ~content~ -> captures 'content' (requires non-word boundary or start/end)
+        `|(?<!\\w)~(?<strike_content>.+?)~(?!\\w)` +
+        // Code: `content` -> captures 'content'
+        `|\`(?<code_content>.*?)\`` +
+        // Slack Link: <url|text> or <url> -> captures 'url' and optional 'text'
+        `|<(?<slack_link_url>https?:\/\/[^|>]+)(?:\\|(?<slack_link_text>[^>]+))?>` +
+        // Markdown Link: [text](url) -> captures 'text' and 'url'
+        `|\\[(?<md_link_text>[^\\][]*?)\\]\\((?<md_link_url>[^)]+?)\\)`,
+        'g' // Global flag to find all matches
+    );
+
+    let match;
+    while ((match = ALL_FORMATS_RE.exec(text)) !== null) {
+        // 1. Add any plain text found *before* the current match
+        if (match.index > currentIndex) {
+            elements.push({ type: "text", text: text.substring(currentIndex, match.index) });
+        }
+
+        // 2. Process the matched formatted element using named groups
+        const groups = match.groups;
+
+        if (groups.bold_content !== undefined) {
+            elements.push({ type: "text", text: groups.bold_content, style: { bold: true } });
+        } else if (groups.italic_content !== undefined) { // Added Italic
+            elements.push({ type: "text", text: groups.italic_content, style: { italic: true } });
+        } else if (groups.strike_content !== undefined) { // Added Strikethrough
+             // Slack uses "strike: true" for strikethrough style
+            elements.push({ type: "text", text: groups.strike_content, style: { strike: true } });
+        } else if (groups.code_content !== undefined) {
+            elements.push({ type: "text", text: groups.code_content, style: { code: true } });
+        } else if (groups.slack_link_url !== undefined) {
+            const url = groups.slack_link_url;
+            const linkText = groups.slack_link_text;
+            elements.push({ type: "link", url: url, text: linkText || url });
+        } else if (groups.md_link_url !== undefined) {
+            const url = groups.md_link_url;
+            const linkText = groups.md_link_text;
+            elements.push({ type: "link", url: url, text: linkText || url });
+        }
+
+        // 3. Update the current index to the end of the matched string
+        currentIndex = ALL_FORMATS_RE.lastIndex;
+
+        // Safety check for zero-length matches
+        if (match[0].length === 0) {
+             ALL_FORMATS_RE.lastIndex++;
+        }
+    }
+
+    // 4. Add any remaining plain text *after* the last match
+    if (currentIndex < text.length) {
+        elements.push({ type: "text", text: text.substring(currentIndex) });
     }
 
     return elements;
 }
+
 
 
 /**

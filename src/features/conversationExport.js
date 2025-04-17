@@ -50,7 +50,7 @@ async function getUserInfo(userId, userInfoCache) {
  */
 async function formatMessageToMarkdown(message, userInfoCache) {
     // Skip non-user messages, commands, status updates etc.
-    if (!message.user || message.subtype || message.type !== 'message' || message.text?.startsWith('gh>') || message.text?.includes('#saveToConversations')) {
+    if (!message.user || message.subtype || message.type !== 'message' || message.text?.startsWith('gh:') || message.text?.includes('#saveToConversations')) {
         return '';
     }
 

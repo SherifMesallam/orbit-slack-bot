@@ -189,11 +189,17 @@ export async function callGithubApi(apiDetails) {
     if (!githubToken) throw new Error('GitHub token is missing. Cannot call generic API.');
 
     const { endpoint, method = 'GET', parameters = {}, headers = {} } = apiDetails;
-    if (!endpoint || typeof endpoint !== 'string' || !endpoint.startsWith('/')) {
-        throw new Error(`GitHub API endpoint path must be provided and start with '/'. Received: ${endpoint}`);
+    if (!endpoint || typeof endpoint !== 'string' ) {
+        throw new Error(`GitHub API endpoint path must be provided, Received: ${endpoint}`);
     }
 
-    const baseUrl = 'https://api.github.com';
+    let baseUrl = 'https://api.github.com';
+	if ( endpoint.startsWith('https://api.github.com') ) {
+		baseUrl = '';
+	} else if ( ! endpoint.startsWith('/') ) {
+        throw new Error(`GitHub API endpoint path must start with /, Received: ${endpoint}`);
+	}
+
     const url = new URL(baseUrl + endpoint);
     const upperMethod = method.toUpperCase();
 

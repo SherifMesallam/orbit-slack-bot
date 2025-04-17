@@ -13,7 +13,7 @@ import { geminiApiKey } from '../../config.js';
 
 // --- Constants ---
 // Adjust model name as needed. Consider newer models like gemini-1.5-flash-latest if available/suitable.
-const MODEL_NAME = "gemini-1.5-flash-latest";
+const MODEL_NAME = "gemini-2.5-pro-preview-03-25";
 // Define safety settings to block harmful content. Adjust thresholds as necessary.
 const safetySettings = [
   { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },

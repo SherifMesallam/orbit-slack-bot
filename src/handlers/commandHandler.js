@@ -1,6 +1,6 @@
 
 // src/handlers/commandHandler.js
-// Contains handlers for specific commands (`gh>`, `/gh-*`) identified by routers.
+// Contains handlers for specific commands (`gh:`, `/gh-*`) identified by routers.
 
 import { getLatestRelease, getPrDetailsForReview, getGithubIssueDetails, callGithubApi, octokit as octokitInstance } from '../services/githubService.js'; // Import octokit instance
 import { markdownToRichTextBlock, extractTextAndCode, splitMessageIntoChunks } from '../utils/formattingService.js';
@@ -136,13 +136,13 @@ export async function handleSlashCommand(payload, slack, octokit) {
     try {
         let commandHandled = false; // Track if any handler runs
         switch (command) {
-            case '/gh-release': {
+            case '/gh-latest': {
                 const repoIdentifier = commandArgs;
                 if (repoIdentifier) {
                     // Note: Slash commands don't have inherent thread context (replyTarget = channel_id)
                     commandHandled = await handleReleaseInfoCommand(repoIdentifier, channel_id, slack, octokit, thinkingPromise, channel_id);
                 } else {
-                    await slack.chat.postMessage({ channel: channel_id, text: `❌ Usage: \`/gh-release <repo>\`` });
+                    await slack.chat.postMessage({ channel: channel_id, text: `❌ Usage: \`/gh-latest <repo>\`` });
                     commandHandled = true; // Error reported
                 }
                 break;
@@ -188,7 +188,7 @@ export async function handleSlashCommand(payload, slack, octokit) {
                  commandHandled = true; // Error reported
         }
          // If somehow no handler ran for a known command structure
-         if (!commandHandled && ['/gh-release', '/gh-review', '/gh-analyze', '/gh-api'].includes(command)) {
+         if (!commandHandled && ['/gh-latest', '/gh-review', '/gh-analyze', '/gh-api'].includes(command)) {
             console.warn(`[Slash Command Handler] Handler for ${command} did not complete as expected.`);
             await updateOrDeleteThinkingMessage(thinkingPromise, slack, channel_id, null); // Attempt cleanup
          }
@@ -231,7 +231,7 @@ export async function handleDeleteLastMessageCommand(channel, replyTarget, botUs
 }
 
 /**
- * Handles the 'gh> release' command / '/gh-release' slash command.
+ * Handles the 'gh: latest' command / '/gh-latest' slash command.
  * @param {string} repoIdentifier - Repo name, abbreviation, or owner/repo.
  * @param {string} replyTarget - Channel ID (for slash command) or Thread TS (for message command).
  * @param {object} slack - Slack WebClient.
@@ -241,7 +241,7 @@ export async function handleDeleteLastMessageCommand(channel, replyTarget, botUs
  * @returns {Promise<boolean>} True if handled.
  */
 export async function handleReleaseInfoCommand(repoIdentifier, replyTarget, slack, octokit, thinkingMessagePromise, channel) {
-    console.log(`[CH - Release] Handling for identifier: ${repoIdentifier}`);
+    console.log(`[CH - Latest] Handling for identifier: ${repoIdentifier}`);
     const resolved = resolveRepoIdentifier(repoIdentifier); // Use helper
     if (!resolved) {
         await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: `❌ Couldn't resolve repo '${repoIdentifier}'.` });
@@ -277,7 +277,7 @@ export async function handleReleaseInfoCommand(repoIdentifier, replyTarget, slac
 
 
 /**
- * Handles the 'gh> review pr' command / '/gh-review' slash command.
+ * Handles the 'gh: review pr' command / '/gh-review' slash command.
  * @param {string} owner - Repo owner.
  * @param {string} repo - Repo name.
  * @param {number} prNumber - PR number.
@@ -332,7 +332,7 @@ export async function handlePrReviewCommand(owner, repo, prNumber, workspaceSlug
 
 
 /**
- * Handles the 'gh> analyze issue' command / '/gh-analyze' slash command.
+ * Handles the 'gh: analyze issue' command / '/gh-analyze' slash command.
  * @param {string} owner - Repo owner.
  * @param {string} repo - Repo name.
  * @param {number} issueNumber - Issue number.
@@ -398,7 +398,7 @@ export async function handleIssueAnalysisCommand(owner, repo, issueNumber, userP
 }
 
 /**
- * Handles the generic 'gh> api' command / '/gh-api' slash command.
+ * Handles the generic 'gh: api' command / '/gh-api' slash command.
  * @param {string} apiQuery - The user's query describing the API call.
  * @param {string} replyTarget - Channel ID or Thread TS for posting results.
  * @param {string} channel - Channel ID where command was invoked.
@@ -409,7 +409,7 @@ export async function handleIssueAnalysisCommand(owner, repo, issueNumber, userP
  * @returns {Promise<boolean>} True if handled.
  */
 export async function handleGithubApiCommand(apiQuery, replyTarget, channel, slack, thinkingMessagePromise, githubWsSlug, formatterWsSlug) {
-    console.log(`[CH - API] Handling 'gh> api' query: "${apiQuery}"`);
+    console.log(`[CH - API] Handling 'gh: api' query: "${apiQuery}"`);
 
     if (!githubToken) { await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: "❌ GitHub token not configured." }); return true; }
     if (!githubWsSlug) { await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: "❌ GitHub API workspace not configured." }); return true; }
@@ -451,7 +451,7 @@ export async function handleGithubApiCommand(apiQuery, replyTarget, channel, sla
 
     } catch (error) {
         console.error('[CH - API] Error:', error);
-        await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: `❌ Error processing \`gh> api\`: ${error.message}` });
+        await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: `❌ Error processing \`gh: api\`: ${error.message}` });
         return true;
     }
 }
