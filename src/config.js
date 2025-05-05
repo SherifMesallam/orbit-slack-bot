@@ -58,7 +58,7 @@ export const WORKSPACE_OVERRIDE_COMMAND_PREFIX = '#';
 export const intentRoutingEnabled = process.env.INTENT_ROUTING_ENABLED === 'true'; // Default: false
 
 /** @type {string} Name of the intent detection provider to use ('none', 'gemini', etc.). Matches keys in intentDetectionService.js. */
-export const intentProvider = process.env.INTENT_PROVIDER || 'gemini'; // Default: 'none'
+export const intentProvider = process.env.INTENT_PROVIDER || 'none'; // Default: 'none'
 
 /** @type {number} Minimum confidence score (0-1) required to act upon a detected intent (used in future routing logic). */
 export const intentConfidenceThreshold = parseFloat(process.env.INTENT_CONFIDENCE_THRESHOLD || '0.7'); // Default: 0.7

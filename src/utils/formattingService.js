@@ -1,14 +1,15 @@
 // src/utils/formattingService.js
 // Contains functions related to text extraction, splitting, and Slack formatting.
+// Includes improvements for robustness and Slack API compliance (avoids empty text elements).
 
 import {
     MAX_SLACK_BLOCK_TEXT_LENGTH,
     MAX_SLACK_BLOCK_CODE_LENGTH
-} from '../config.js';
+} from '../config.js'; // Assuming config.js is in the parent directory
 
 /**
  * =============================================================================
- *                          MESSAGE SPLITTING LOGIC
+ * MESSAGE SPLITTING LOGIC
  * =============================================================================
  */
 
@@ -20,7 +21,11 @@ import {
  */
 function splitByCharCount(text, maxLength) {
     const chunks = [];
-    if (!text || text.length === 0) return chunks; // Handle empty input
+    // Handle null/undefined/empty input gracefully
+    if (!text || text.length === 0) {
+        // console.warn("[Formatting Service] splitByCharCount called with empty input.");
+        return chunks;
+    }
 
     let remainingText = text;
     let isFirstChunk = true;
@@ -34,35 +39,51 @@ function splitByCharCount(text, maxLength) {
             let splitPoint = -1;
             // Try last newline first within the limit, preferring it if it's not too close to the start
             let newlineSplitPoint = remainingText.lastIndexOf('\n', maxLength);
+            // Prefer newline if it exists and is past the halfway point
             if (newlineSplitPoint > maxLength * 0.5) {
                  splitPoint = newlineSplitPoint + 1; // Split *after* newline
             } else {
                  // Try last space if newline wasn't suitable
                  let spaceSplitPoint = remainingText.lastIndexOf(' ', maxLength);
-                 if (spaceSplitPoint > maxLength * 0.5) { // Prefer space if not too close to start
+                 // Prefer space if it exists and is past the halfway point
+                 if (spaceSplitPoint > maxLength * 0.5) {
                      splitPoint = spaceSplitPoint + 1; // Split *after* space
                  }
             }
 
-            // If no good split point found, force split at maxLength
+            // If no good split point found (only very long words/no spaces/newlines), force split at maxLength
             if (splitPoint === -1) {
-                splitPoint = maxLength;
+                // Check if maxLength itself is a space or newline, prefer splitting before it if so
+                if (maxLength > 0 && /\s/.test(remainingText[maxLength])) {
+                     splitPoint = maxLength;
+                } else if (maxLength > 1 && /\s/.test(remainingText[maxLength - 1])) {
+                     splitPoint = maxLength -1;
+                // Otherwise, force split, potentially mid-word
+                } else {
+                     splitPoint = maxLength;
+                }
             }
+
+            // Ensure splitPoint is valid
+             splitPoint = Math.max(1, splitPoint); // Avoid splitPoint 0 if maxLength is 0 or issue occurs
 
             currentChunk = remainingText.substring(0, splitPoint);
             remainingText = remainingText.substring(splitPoint);
         }
 
         // Preserve trailing newline for the first chunk if it exists (e.g., start of code block)
-        if (isFirstChunk && currentChunk.endsWith('\n')) {
-             chunks.push(currentChunk);
-        } else {
-             chunks.push(currentChunk.trim()); // Trim whitespace from other chunks
+        // Trim other chunks to avoid artificial whitespace gaps.
+        const chunkToPush = (isFirstChunk && currentChunk.endsWith('\n')) ? currentChunk : currentChunk.trim();
+
+        // Only push non-empty chunks (trimming might make it empty)
+        if (chunkToPush.length > 0) {
+             chunks.push(chunkToPush);
         }
+
         isFirstChunk = false;
         remainingText = remainingText.trimStart(); // Trim leading whitespace for the next chunk
     }
-    // Filter out potentially empty chunks created by splitting/trimming
+    // Final filter just in case, although logic above should prevent empty strings
     return chunks.filter(chunk => chunk.length > 0);
 }
 
@@ -71,20 +92,36 @@ function splitByCharCount(text, maxLength) {
  * Prioritizes keeping code blocks intact if possible. Adds numbering to multiple text chunks.
  * @param {string} message - The full message content.
  * @param {number} [maxLength=MAX_SLACK_BLOCK_TEXT_LENGTH] - Max length for text chunks.
- * @returns {string[]} An array of message chunks ready for posting.
+ * @returns {string[]} An array of message chunks ready for posting. Returns [''] if input is effectively empty.
  */
 export function splitMessageIntoChunks(message, maxLength = MAX_SLACK_BLOCK_TEXT_LENGTH) {
-    if (!message || message.trim().length === 0) return [''];
+    // Enhanced input validation
+    if (!message || typeof message !== 'string' || message.trim().length === 0) {
+        console.warn(`[Formatting Service] splitMessageIntoChunks called with empty or invalid input. Type: ${typeof message}`);
+        return ['']; // Return a single empty string block as Slack often requires some content
+    }
 
-    const segments = extractTextAndCode(message); // Assumes extractTextAndCode exists in this file
-    if (segments.length === 0) return [''];
+    const segments = extractTextAndCode(message);
+    if (segments.length === 0) {
+         console.warn("[Formatting Service] extractTextAndCode returned no segments for non-empty input. Input (start):", message.substring(0, 100));
+        // If extraction yielded nothing from non-empty trimmed input, split the original message directly
+        // This could happen if the message has unusual formatting not matching the code block regex
+         return splitByCharCount(message.trim(), maxLength);
+        // return ['']; // Or return empty if preferred
+    }
 
     const finalChunks = [];
     let currentTextAccumulator = ''; // Accumulates text between code blocks
 
     function flushAccumulatedText() {
-        if (currentTextAccumulator.trim().length > 0) {
-            finalChunks.push(...splitByCharCount(currentTextAccumulator, maxLength));
+        const trimmedAccumulator = currentTextAccumulator.trim();
+        if (trimmedAccumulator.length > 0) {
+            const splitText = splitByCharCount(trimmedAccumulator, maxLength);
+            if (splitText.length > 0) {
+                finalChunks.push(...splitText);
+            } else {
+                 console.warn("[Formatting Service] splitByCharCount resulted in zero chunks from non-empty trimmed accumulator:", trimmedAccumulator.substring(0,100));
+            }
         }
         currentTextAccumulator = '';
     }
@@ -94,50 +131,67 @@ export function splitMessageIntoChunks(message, maxLength = MAX_SLACK_BLOCK_TEXT
             flushAccumulatedText(); // Process any text before this code block
 
             const langIdentifier = (segment.language && segment.language !== 'text') ? segment.language : '';
-            // Ensure content inside block is trimmed, but keep surrounding newlines
-            const codeBlockText = '```' + langIdentifier + '\n' + (segment.content || '').trim() + '\n```';
+            // Ensure content inside block is trimmed, but keep surrounding newlines for ``` formatting
+            const codeBlockContent = (segment.content || '').trim(); // Trim internal content first
+            // Avoid adding extra newlines if content is empty
+            const codeBlockText = codeBlockContent.length > 0
+                 ? '```' + langIdentifier + '\n' + codeBlockContent + '\n```'
+                 : '```' + langIdentifier + '\n```'; // Represent empty code block
 
             // Determine the limit for this specific code block chunk
+            // Use the larger of the default maxLength or the specific code block max length
             const limitForThisCodeBlock = Math.max(maxLength, MAX_SLACK_BLOCK_CODE_LENGTH);
 
             // Split the code block itself if it exceeds the limit
-            finalChunks.push(...splitByCharCount(codeBlockText, limitForThisCodeBlock));
+            const splitCode = splitByCharCount(codeBlockText, limitForThisCodeBlock);
+             if (splitCode.length > 0) {
+                 finalChunks.push(...splitCode);
+             } else {
+                 console.warn("[Formatting Service] splitByCharCount resulted in zero chunks from code block:", codeBlockText.substring(0,100));
+             }
 
         } else { // segment.type === 'text'
-            // Add space separator unless the accumulator already ends with whitespace
+            // Add space separator unless the accumulator is empty or already ends with whitespace
             if (currentTextAccumulator.length > 0 && !/\s$/.test(currentTextAccumulator)) {
                  currentTextAccumulator += ' ';
             }
-            currentTextAccumulator += segment.content;
+            currentTextAccumulator += segment.content; // Add the raw content
         }
     }
 
     flushAccumulatedText(); // Flush any remaining text
 
-    // Add chunk numbering [N/M] if there's more than one text chunk
+    // Filter out any potentially empty chunks again (belt-and-suspenders)
     const nonEmptyChunks = finalChunks.filter(chunk => chunk && chunk.trim().length > 0);
+
+    // Count only chunks that are NOT code blocks for numbering
     let nonCodeBlockCounter = 0;
-    // Count only chunks that are NOT code blocks
     const totalNonCodeBlocks = nonEmptyChunks.filter(chunk => !chunk.trim().startsWith('```')).length;
 
+    let numberedChunks = [];
     if (totalNonCodeBlocks > 1) {
-        return nonEmptyChunks.map((chunk) => {
+        numberedChunks = nonEmptyChunks.map((chunk) => {
+            // Check if it's NOT a code block before numbering
             if (!chunk.trim().startsWith('```')) {
                 nonCodeBlockCounter++;
-                return `[${nonCodeBlockCounter}/${totalNonCodeBlocks}] ${chunk}`;
+                // Ensure chunk content itself is trimmed before prepending number
+                return `[${nonCodeBlockCounter}/${totalNonCodeBlocks}] ${chunk.trim()}`;
             }
             return chunk; // Leave code blocks as is
         });
     } else {
-        // Return the chunks, ensuring at least one empty string if all else fails
-        return nonEmptyChunks.length > 0 ? nonEmptyChunks : [''];
+        // No numbering needed, just use the non-empty chunks
+        numberedChunks = nonEmptyChunks;
     }
+
+    // Ensure we always return at least [''] if everything got filtered out
+    return numberedChunks.length > 0 ? numberedChunks : [''];
 }
 
 
 /**
  * =============================================================================
- *                       TEXT & CODE BLOCK EXTRACTION
+ * TEXT & CODE BLOCK EXTRACTION
  * =============================================================================
  */
 
@@ -147,27 +201,37 @@ export function splitMessageIntoChunks(message, maxLength = MAX_SLACK_BLOCK_TEXT
  * @returns {Array<{type: 'text' | 'code', content: string, language?: string}>}
  */
 export function extractTextAndCode(rawText) {
-    if (!rawText) return [];
+	console.log( `[Msg Handler] LLM Raw response: ${rawText}`)
+    // Return empty array for null/undefined input immediately
+    if (rawText === null || rawText === undefined) return [];
+    // Allow empty string input to proceed, might contain only code blocks later
+    if (typeof rawText !== 'string') return [];
+
 
     const segments = [];
-    // Regex:
+    // Regex: Improved slightly for clarity and edge cases like hyphens in language
     // ^``` : Start of line followed by ```
-    //  *(\w+)? : Optional language identifier (word characters), captured in group 1
-    //  *\\n? : Optional space, then optional newline
-    // ([\s\S]*?) : Capture content (any char, non-greedy), captured in group 2
-    // \\n?```$ : Optional newline, ```, end of line
+    //  *([\w\-]+)? : Optional language identifier (word chars OR hyphen), captured in group 1
+    //  *\r?\n? : Optional space, optional CR, optional newline
+    // ([\s\S]*?) : Capture content (any char including newlines, non-greedy), captured in group 2
+    // \r?\n?```$ : Optional CR, optional newline, ```, end of line
     // gm : Global (find all) and Multiline (^$ match line breaks)
-    const codeBlockRegex = /^``` *([\w\-]+)? *\n?([\s\S]*?)\n?```$/gm;
+    const codeBlockRegex = /^``` *([\w\-]+)? *\r?\n?([\s\S]*?)\r?\n?```$/gm;
     let lastIndex = 0;
     let match;
 
+    // Handle case where the entire text is one code block
+     // Reset lastIndex before exec if using the same regex instance repeatedly matters (it does)
+     codeBlockRegex.lastIndex = 0;
+
     while ((match = codeBlockRegex.exec(rawText)) !== null) {
-        const languageIdentifier = match[1]?.toLowerCase() || 'text';
+        // Use 'text' as default language if identifier is missing or empty
+        const languageIdentifier = match[1]?.trim() ? match[1].trim().toLowerCase() : 'text';
         const codeContent = match[2] || ''; // Default to empty string if content is missing
         const startIndex = match.index;
         const endIndex = codeBlockRegex.lastIndex;
 
-        // Add preceding text segment if it exists
+        // Add preceding text segment if it exists and isn't just whitespace
         if (startIndex > lastIndex) {
             const textContent = rawText.substring(lastIndex, startIndex).trim();
             if (textContent.length > 0) {
@@ -177,13 +241,13 @@ export function extractTextAndCode(rawText) {
         // Add the code segment
         segments.push({
             type: 'code',
-            content: codeContent, // Preserve original content formatting
+            content: codeContent, // Preserve original content formatting within the block for now
             language: languageIdentifier
         });
         lastIndex = endIndex;
     }
 
-    // Add any remaining text after the last code block
+    // Add any remaining text after the last code block if it exists and isn't just whitespace
     if (lastIndex < rawText.length) {
          const textContent = rawText.substring(lastIndex).trim();
          if (textContent.length > 0) {
@@ -191,137 +255,213 @@ export function extractTextAndCode(rawText) {
          }
     }
 
-    return segments; // Return the array of text/code objects
+    // If the input was non-empty but only whitespace, segments might be empty.
+    // If input had content but only code blocks, segments would contain only code.
+    // If input had content but only text, segments would contain only text.
+    return segments;
 }
 
 /**
  * =============================================================================
- *                      SLACK RICH TEXT BLOCK FORMATTING
+ * SLACK RICH TEXT BLOCK FORMATTING
  * =============================================================================
  */
 
 /**
- * Parses simple inline markdown formatting (**bold**, `code`, <links>) within a text segment.
+ * Parses simple inline markdown formatting within a text segment for Slack rich text.
  * Returns an array of Slack rich text elements suitable for a rich_text_section block.
- * Note: Does NOT handle block-level elements or italics (*text* or _text*).
- * Handles Slack's native links (<url|text>) and standard Markdown links ([text](url)).
+ * IMPORTANT: Filters out any generated text elements with empty strings to prevent API errors.
+ * Handles: **bold**, _italic_, ~strike~, `code`, <links>, [links](url).
  *
  * @param {string} text - The text segment to parse.
  * @returns {Array<object>} An array of Slack rich text elements (type: "text" or type: "link").
  */
 function parseInlineFormatting(text) {
-    if (!text) {
-        return []; // Return empty array for empty or null input
+    // Return empty array for empty, null, or non-string input
+    if (!text || typeof text !== 'string' || text.length === 0) {
+        return [];
     }
 
     const elements = [];
     let currentIndex = 0;
 
-    // Regex using named capture groups for clarity and robustness.
-    // Added italic (_content_) and strikethrough (~content~).
-    // Using lookarounds (?<!\w) and (?!\w) to avoid matching within words.
-    // Note: Lookbehind (?<!) might have compatibility issues in very old JS environments, but is standard now.
+    // Regex using named capture groups. Includes bold, italic, strike, code, slack links, markdown links.
+    // Using non-capturing groups (?:...) where appropriate.
+    // Lookarounds (?<!\w) and (?!\w) help avoid matching within words for _italic_ and ~strike~.
     const ALL_FORMATS_RE = new RegExp(
-        // Bold: **content** -> captures 'content'
+        // Bold: **content** -> captures 'content' (non-greedy)
         `\\*\\*(?<bold_content>.*?)\\*\\*` +
-        // Italic: _content_ -> captures 'content' (requires non-word boundary or start/end)
-        `|(?<!\\w)_(?<italic_content>.+?)_(?!\\w)` +
-         // Strikethrough: ~content~ -> captures 'content' (requires non-word boundary or start/end)
-        `|(?<!\\w)~(?<strike_content>.+?)~(?!\\w)` +
-        // Code: `content` -> captures 'content'
+        // Italic: _content_ -> captures 'content' (non-greedy, with word boundary checks)
+        `|(?<![\\w*_])_(?<italic_content>.+?)_(?![\\w*_])` + // Avoid matching inside **_bold-italic_** issues, allow leading/trailing * or _
+         // Strikethrough: ~content~ -> captures 'content' (non-greedy, with word boundary checks)
+        `|(?<![\\w~])~(?<strike_content>.+?)~(?![\\w~])` + // Avoid matching inside words
+        // Code: `content` -> captures 'content' (non-greedy)
         `|\`(?<code_content>.*?)\`` +
         // Slack Link: <url|text> or <url> -> captures 'url' and optional 'text'
-        `|<(?<slack_link_url>https?:\/\/[^|>]+)(?:\\|(?<slack_link_text>[^>]+))?>` +
-        // Markdown Link: [text](url) -> captures 'text' and 'url'
-        `|\\[(?<md_link_text>[^\\][]*?)\\]\\((?<md_link_url>[^)]+?)\\)`,
+        `|<(?<slack_link_url>https?:\/\/[^|>\\s]+)(?:\\|(?<slack_link_text>[^>]+))?>` + // Ensure URL part has no spaces or >
+        // Markdown Link: [text](url) -> captures 'text' (non-greedy) and 'url' (non-greedy)
+        `|\\[(?<md_link_text>[^\\][]*?)\\]\\((?<md_link_url>[^)\\s]+?)\\)`, // Ensure URL part has no ) or spaces
         'g' // Global flag to find all matches
     );
+
 
     let match;
     while ((match = ALL_FORMATS_RE.exec(text)) !== null) {
         // 1. Add any plain text found *before* the current match
         if (match.index > currentIndex) {
-            elements.push({ type: "text", text: text.substring(currentIndex, match.index) });
+            const plainText = text.substring(currentIndex, match.index);
+            // *** Filter: Only add if non-empty ***
+            if (plainText.length > 0) {
+                 elements.push({ type: "text", text: plainText });
+            }
         }
 
         // 2. Process the matched formatted element using named groups
         const groups = match.groups;
+        let matched = false; // Flag to check if any group matched
 
         if (groups.bold_content !== undefined) {
-            elements.push({ type: "text", text: groups.bold_content, style: { bold: true } });
-        } else if (groups.italic_content !== undefined) { // Added Italic
-            elements.push({ type: "text", text: groups.italic_content, style: { italic: true } });
-        } else if (groups.strike_content !== undefined) { // Added Strikethrough
-             // Slack uses "strike: true" for strikethrough style
-            elements.push({ type: "text", text: groups.strike_content, style: { strike: true } });
+             // *** Filter: Only add if content is non-empty ***
+             if (groups.bold_content.length > 0) {
+                elements.push({ type: "text", text: groups.bold_content, style: { bold: true } });
+                matched = true;
+             }
+        } else if (groups.italic_content !== undefined) {
+             // *** Filter: Only add if content is non-empty ***
+             if (groups.italic_content.length > 0) {
+                elements.push({ type: "text", text: groups.italic_content, style: { italic: true } });
+                matched = true;
+             }
+        } else if (groups.strike_content !== undefined) {
+             // *** Filter: Only add if content is non-empty ***
+             if (groups.strike_content.length > 0) {
+                 // Slack uses "strike: true" for strikethrough style
+                elements.push({ type: "text", text: groups.strike_content, style: { strike: true } });
+                matched = true;
+             }
         } else if (groups.code_content !== undefined) {
-            elements.push({ type: "text", text: groups.code_content, style: { code: true } });
+             // *** Filter: Only add if content is non-empty ***
+             if (groups.code_content.length > 0) {
+                elements.push({ type: "text", text: groups.code_content, style: { code: true } });
+                matched = true;
+             }
         } else if (groups.slack_link_url !== undefined) {
             const url = groups.slack_link_url;
-            const linkText = groups.slack_link_text;
-            elements.push({ type: "link", url: url, text: linkText || url });
+            // Use provided text, fallback to URL if text is missing/empty
+            const linkText = groups.slack_link_text?.trim() || url;
+             // *** Filter: Ensure linkText is non-empty (URL itself should always be non-empty due to regex) ***
+             if (linkText.length > 0) {
+                 elements.push({ type: "link", url: url, text: linkText });
+                 matched = true;
+             }
         } else if (groups.md_link_url !== undefined) {
             const url = groups.md_link_url;
-            const linkText = groups.md_link_text;
-            elements.push({ type: "link", url: url, text: linkText || url });
+            // Use provided text, fallback to URL if text is missing/empty
+            const linkText = groups.md_link_text?.trim() || url;
+             // *** Filter: Ensure linkText is non-empty (URL itself should always be non-empty due to regex) ***
+             if (linkText.length > 0) {
+                 elements.push({ type: "link", url: url, text: linkText || url }); // Ensure text field exists
+                 matched = true;
+             }
         }
 
-        // 3. Update the current index to the end of the matched string
+        // 3. Update the current index
+        // If a known format was matched, advance past it.
+        // If regex matched but no group captured (shouldn't happen with this regex structure),
+        // or if matched content was empty and filtered out, still advance past the raw match
+        // to avoid infinite loops on zero-length matches (though the regex tries to avoid this).
         currentIndex = ALL_FORMATS_RE.lastIndex;
 
-        // Safety check for zero-length matches
-        if (match[0].length === 0) {
-             ALL_FORMATS_RE.lastIndex++;
-        }
+         // Safety check for potential zero-length matches that might cause infinite loops
+         // (e.g., if regex somehow matched an empty string)
+         if (match[0].length === 0) {
+             // console.warn("[Formatting Service] Zero-length match detected in parseInlineFormatting regex. Advancing index by 1.");
+             ALL_FORMATS_RE.lastIndex++; // Manually advance index
+         }
     }
 
     // 4. Add any remaining plain text *after* the last match
     if (currentIndex < text.length) {
-        elements.push({ type: "text", text: text.substring(currentIndex) });
+        const remainingText = text.substring(currentIndex);
+         // *** Filter: Only add if non-empty ***
+         if (remainingText.length > 0) {
+             elements.push({ type: "text", text: remainingText });
+         }
     }
 
-    return elements;
+    // *** Final Filter (Belt-and-Suspenders): Ensure no empty text elements remain ***
+    // Although inline filters are added above, this catches any missed cases.
+    const finalFilteredElements = elements.filter(element => {
+        return element.type !== "text" || (element.text && element.text.length > 0);
+    });
+
+    // Log if filtering occurred at the end (might indicate a logic issue above)
+    // if (finalFilteredElements.length < elements.length) {
+    //     console.warn("[Formatting Service] parseInlineFormatting final filter removed empty text elements.");
+    // }
+
+    return finalFilteredElements;
 }
 
 
 
 /**
- * Converts markdown text (potentially including a single code block)
- * into a single Slack rich_text block object.
- * Uses `rich_text_preformatted` for pure code blocks, `rich_text_section` otherwise.
- * @param {string} markdown - The markdown text for the block.
+ * Converts markdown text (potentially including code blocks handled by splitting)
+ * into a single Slack rich_text block object suitable for the Slack API.
+ * Uses `rich_text_preformatted` for pure code blocks detected, `rich_text_section` otherwise.
+ * Ensures generated blocks comply with Slack's requirement for non-empty text elements.
+ *
+ * @param {string} markdown - The markdown text for the block (should be a single chunk from splitMessageIntoChunks or a short message).
  * @param {string} [blockId] - Optional block_id for the rich_text block.
- * @returns {object | null} A Slack rich_text block object or null if input is empty/invalid.
+ * @returns {object | null} A Slack rich_text block object or null if input is empty/invalid or results in an empty block.
  */
 export function markdownToRichTextBlock(markdown, blockId = `block_${Date.now()}_${Math.random().toString(16).slice(2)}`) {
+    // Enhanced Input Validation
     if (!markdown || typeof markdown !== 'string' || markdown.trim().length === 0) {
-        console.warn("[Formatting Service] markdownToRichTextBlock called with empty or invalid input.");
-        return null;
+        console.warn(`[Formatting Service] markdownToRichTextBlock called with empty or invalid input. Type: ${typeof markdown}. Input(start): "${String(markdown).substring(0, 50)}..."`);
+        return null; // Cannot create a block from empty content
     }
 
+    const trimmedMarkdown = markdown.trim();
+
     // Detect if the *entire* trimmed input is just a single code block
-    const codeBlockMatch = markdown.trim().match(/^```(?:[\w-]*)?\s*([\s\S]*?)\s*```$/);
+    // Regex adjusted to be less strict about internal whitespace/newlines around content
+    const codeBlockMatch = trimmedMarkdown.match(/^```([\w-]*)?\s*([\s\S]*?)\s*```$/);
 
     if (codeBlockMatch) {
         // Pure Code Block: Use rich_text_preformatted
-        const codeContent = codeBlockMatch[1] || '';
+        const codeContent = codeBlockMatch[2] || ''; // Extract content
+        // Note: Slack API might technically allow empty text here, but often pointless.
+        // Let's allow empty code blocks for now unless it causes issues.
         // console.log(`[Formatting Service] Detected pure code block.`);
+
+        // No border for preformatted text in Slack UI as of recent updates
         return {
             type: "rich_text",
             block_id: blockId,
             elements: [{
                 type: "rich_text_preformatted",
+                 // border: 0, // Deprecated or removed feature in Slack UI
                 elements: [{ type: "text", text: codeContent }] // Raw code content inside text element
             }]
         };
     } else {
         // Regular Text or Mixed Content: Use rich_text_section
         // console.log(`[Formatting Service] Parsing as rich_text_section.`);
-        const sectionElements = parseInlineFormatting(markdown); // Parse for **bold**, `code`, <links>
 
+        // Use the original markdown (not trimmed) for parsing inline, preserves leading/trailing spaces if needed by context
+        let sectionElements = parseInlineFormatting(markdown);
+
+        // *** Safeguard Filter: Apply filter again here ***
+        // This ensures compliance even if parseInlineFormatting filter fails or is removed.
+        sectionElements = sectionElements.filter(element => {
+            return element.type !== "text" || (element.text && element.text.length > 0);
+        });
+
+        // If parsing + filtering resulted in NO elements, we cannot create a valid section block.
         if (sectionElements.length === 0) {
-            // This might happen if input was only whitespace or unparsable chars
-            console.warn(`[Formatting Service] No elements generated from parsing markdown section. Input: "${markdown.substring(0,50)}..."`);
+            console.warn(`[Formatting Service] No valid rich text elements generated or remained after filtering for markdownToRichTextBlock section. Input: "${markdown.substring(0,100)}..."`);
+            // Decide what to return: null, or a block with placeholder? Returning null is safer.
             return null;
         }
 
@@ -330,11 +470,11 @@ export function markdownToRichTextBlock(markdown, blockId = `block_${Date.now()}
             block_id: blockId,
             elements: [{
                 type: "rich_text_section",
-                elements: sectionElements // Array of text, link, styled text elements
+                elements: sectionElements // Use the filtered array of text, link, styled text elements
             }]
         };
     }
 }
 
 
-console.log("[Formatting Service] Initialized.");
+console.log("[Formatting Service] Initialized with improved formatting logic.");

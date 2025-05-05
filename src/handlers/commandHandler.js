@@ -371,6 +371,10 @@ export async function handleIssueAnalysisCommand(owner, repo, issueNumber, userP
         if (!summaryResponse) throw new Error('LLM failed summary.');
 
         const summaryBlock = markdownToRichTextBlock(`*Summary for issue #${issueNumber}:*\n${summaryResponse}`);
+		console.log( '----BLOCK DATA------' );
+		console.log( summaryBlock );
+		console.log( '----BLOCK DATA------' );
+
         await slack.chat.postMessage({ channel, thread_ts: replyTarget, text: `Summary issue #${issueNumber}:`, blocks: summaryBlock ? [summaryBlock] : undefined });
 
         await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: `:brain: Analyzing issue #${issueNumber}...` });

@@ -33,6 +33,7 @@ const defaultErrorResponse = { intent: null, confidence: 0, suggestedWorkspace: 
  * @returns {Promise<{ intent: string | null, confidence: number, suggestedWorkspace: string | null }>}
  */
 export async function detectIntent(query, availableIntents = [], availableWorkspaces = []) {
+	console.log( availableWorkspaces );
     // --- 1. Check Configuration ---
     if (!geminiApiKey) {
         console.error("[Gemini Intent Provider] Error: GEMINI_API_KEY is not configured in src/config.js or environment variables.");
@@ -55,8 +56,8 @@ export async function detectIntent(query, availableIntents = [], availableWorksp
         ? `Choose ONLY from the following list if applicable: [${availableIntents.join(', ')}]. If none apply, determine the most fitting intent.`
         : 'Determine the most fitting intent.';
     const workspaceList = availableWorkspaces.length > 0
-        ? `Suggest the single most relevant workspace for this query based on its topic, choosing ONLY from this list: [${availableWorkspaces.join(', ')}]. If no workspace from the list is clearly relevant, use null.`
-        : 'Use null for the suggested workspace.';
+        ? `Suggest the single most relevant workspace for this query based on its topic, choosing ONLY from this list: [${availableWorkspaces.join(', ')}].`
+        : 'Use all for the suggested workspace.';
 
     // The core prompt instructing the model on its task and desired output format.
     const prompt = `
@@ -67,17 +68,19 @@ Your task is to:
 2. Estimate your confidence in this classification (a number strictly between 0.0 and 1.0).
 3. ${workspaceList}
 
-Respond ONLY with a single, valid JSON object containing exactly three keys: "intent" (string or null), "confidence" (number between 0.0 and 1.0), and "suggestedWorkspace" (string or null). Do not include any other text, explanations, or markdown formatting like \`\`\`json.
+Respond ONLY with a single, valid JSON object containing exactly three keys: "intent" (string or null), "confidence" (number between 0.0 and 1.0), and "suggestedWorkspace" (string ). Do not include any other text, explanations, or markdown formatting like \`\`\`json.
 
 Example valid responses:
-{"intent": "github_issue_lookup", "confidence": 0.85, "suggestedWorkspace": "dev-support"}
-{"intent": "general_knowledge_question", "confidence": 0.7, "suggestedWorkspace": null}
-{"intent": null, "confidence": 0.1, "suggestedWorkspace": null}
+{"intent": "github_issue_lookup", "confidence": 0.85, "suggestedWorkspace": all}
+{"intent": "general_knowledge_question", "confidence": 0.7, "suggestedWorkspace": gravityformsstipe}
+{"intent": null, "confidence": 0.1, "suggestedWorkspace": gravityforms}
 
 User Query: "${query}"
 
 JSON Response:
 `;
+
+	console.log( prompt );
 
     // --- 4. Call Gemini API ---
     let responseText = '';

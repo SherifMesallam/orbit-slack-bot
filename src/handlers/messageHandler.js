@@ -2,18 +2,18 @@
 // Handles regular messages and app mentions, routing to commands or LLM fallback.
 
 import {
-    botUserId,
-    githubWorkspaceSlug,
-    formatterWorkspaceSlug,
-    MIN_SUBSTANTIVE_RESPONSE_LENGTH,
-    GITHUB_OWNER,
-    githubToken,
-    COMMAND_PREFIX,
-    WORKSPACE_OVERRIDE_COMMAND_PREFIX,
+	botUserId,
+	githubWorkspaceSlug,
+	formatterWorkspaceSlug,
+	MIN_SUBSTANTIVE_RESPONSE_LENGTH,
+	GITHUB_OWNER,
+	githubToken,
+	COMMAND_PREFIX,
+	WORKSPACE_OVERRIDE_COMMAND_PREFIX,
 	FEEDBACK_SYSTEM_ENABLED,
-    // Import new config flags for intent routing
-    intentRoutingEnabled,
-    intentConfidenceThreshold,
+	// Import new config flags for intent routing
+	intentRoutingEnabled,
+	intentConfidenceThreshold, fallbackWorkspace,
 } from '../config.js';
 
 // --- Service Imports ---
@@ -24,7 +24,8 @@ import {
     queryLlm,
     createNewAnythingLLMThread,
     determineWorkspace,
-    detectIntentAndWorkspace
+    detectIntentAndWorkspace,
+	getWorkspaces
 } from '../services/index.js';
 
 // --- Utility Imports ---
@@ -46,6 +47,7 @@ import {
     // handleFaqIntent,
 } from './commandHandler.js'; // Or import from './intentHandler.js' later
 
+import strings from '../services/stringService.js';
 // --- Command Patterns ---
 
 const CMD_PREFIX = COMMAND_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // Escape prefix
@@ -263,9 +265,10 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
         try {
             // --- Step 5a: Intent Detection ---
             console.log("[Msg Handler] Running Intent Detection...");
-            intentDetectionResult = await detectIntentAndWorkspace(cleanedQuery);
+			const availableWorkSpaces = await getWorkspaces( true );
+            intentDetectionResult = await detectIntentAndWorkspace(cleanedQuery, [], availableWorkSpaces );
             const { intent, confidence, suggestedWorkspace } = intentDetectionResult;
-
+			console.log({ intent, confidence, suggestedWorkspace } );
             // --- Step 5b: Intent-Based Routing ---
             if (intentRoutingEnabled && intent && confidence >= intentConfidenceThreshold) {
                 console.log(`[Msg Handler] Intent detected: '${intent}' (Confidence: ${confidence.toFixed(2)}). Attempting routing.`);
@@ -327,13 +330,50 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                 // Get/Create Thread Mapping
                 console.log("[Msg Handler] Checking/Updating thread mapping for LLM query...");
                 const mapping = await getAnythingLLMThreadMapping(channelId, replyTarget);
-
+                let historyForLlm = "";
                 if (mapping && mapping.anythingllm_workspace_slug === finalWorkspaceSlug) {
                     anythingLLMThreadSlug = mapping.anythingllm_thread_slug;
                     console.log(`[Msg Handler] Using existing thread mapping for LLM: ${finalWorkspaceSlug}:${anythingLLMThreadSlug}`);
-                } else {
-                    if (mapping) { console.log(`[Msg Handler] Workspace changed for LLM (Mapped: ${mapping.anythingllm_workspace_slug}, Determined: ${finalWorkspaceSlug}). Creating new thread.`); }
-                    else { console.log(`[Msg Handler] No existing thread mapping found for LLM. Creating new thread.`); }
+                } else if ( mapping && finalWorkspaceSlug === fallbackWorkspace ) {
+					// Reset to original mapping if consequent questions were marked as fallback, unless intentionally (Add check)
+					anythingLLMThreadSlug = mapping.anythingllm_thread_slug;
+					finalWorkspaceSlug    = mapping.anythingllm_workspace_slug
+                    console.log(`[Msg Handler] Resting to existing thread mapping for LLM: ${finalWorkspaceSlug}:${anythingLLMThreadSlug}`);
+				} else {
+                    if (mapping) {
+						console.log(`[Msg Handler] Workspace changed for LLM (Mapped: ${mapping.anythingllm_workspace_slug}, Determined: ${finalWorkspaceSlug}). Creating new thread.`);
+					}
+                    else {
+						console.log(`[Msg Handler] No existing thread mapping found for LLM. Creating new thread.`);
+					}
+
+                    // --- Fetch History for Context ---
+
+                    try {
+                        console.log(`[Msg Handler] Fetching history for new thread context from channel ${channelId}, thread ${replyTarget}`);
+                        const historyResult = await slack.conversations.replies({
+                            channel: channelId,
+                            ts: replyTarget,
+                            limit: 20 // Fetch last 20 messages in the thread
+                        });
+                        if (historyResult.ok && historyResult.messages && historyResult.messages.length > 1) {
+                            // Skip the first message (thread starter) and format the rest
+                            historyForLlm = historyResult.messages.slice(1).map(msg => {
+                                const prefix = (msg.user === botUserId || msg.bot_id) ? "Assistant:" : "User:";
+                                // Extract text, handling potential blocks structure later if needed
+                                const msgText = (msg.text || '').replace(/<@[^>]+>/g, '').trim(); // Basic mention removal
+                                return `${prefix} ${msgText}`;
+                            }).join("\n");
+                             console.log(`[Msg Handler] Fetched ${historyResult.messages.length - 1} history messages. Total length: ${historyForLlm.length}`);
+                             historyForLlm += "\n\n"; // Add separation before the new query
+                        } else {
+                           console.warn("[Msg Handler] Could not fetch significant history for new thread:", historyResult.error || 'No messages found');
+                        }
+                    } catch (histError) {
+                        console.error("[Msg Handler] Error fetching thread history:", histError);
+                        // Proceed without history if fetching fails
+                    }
+                    // --- End History Fetch ---
 
                     anythingLLMThreadSlug = await createNewAnythingLLMThread(finalWorkspaceSlug);
                     if (!anythingLLMThreadSlug) { throw new Error(`Failed to create new thread in workspace ${finalWorkspaceSlug}. Check LLM API status and workspace slug validity.`); }
@@ -343,18 +383,18 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                 }
 
                 // --- Step 5d: Query LLM ---
-                await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { text: `:brain: Thinking in workspace \`${finalWorkspaceSlug}\`...` });
+                await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { text: strings.getWorkplaceThinkingString( finalWorkspaceSlug ) });
 
                 let llmInputText = cleanedQuery.replace(WORKSPACE_OVERRIDE_REGEX, '').trim();
                 const instruction = '\n\nIMPORTANT: Provide a clean answer without referencing internal context markers (like "CONTEXT N"). Format your response using Slack markdown (bold, italics, code blocks, links).';
-                llmInputText += instruction;
+                // Prepend history if fetched
+                llmInputText = historyForLlm + "User: " + llmInputText + instruction;
 
-                console.log(`[Msg Handler] Querying LLM: Ws=${finalWorkspaceSlug}, Thr=${anythingLLMThreadSlug}, Input Length=${llmInputText.length}`);
+                console.log(`[Msg Handler] Querying LLM: Ws=${finalWorkspaceSlug}, Thr=${anythingLLMThreadSlug}, Input Length=${llmInputText.length} (History included: ${!!historyForLlm})`);
                 const rawReply = await queryLlm(finalWorkspaceSlug, anythingLLMThreadSlug, llmInputText);
                 const trimmedReply = typeof rawReply === 'string' ? rawReply.trim() : "";
 
-                await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, null); // Delete thinking message
-                thinkingMessageTs = null; // Mark as deleted
+
 
                 // --- Step 5e: Process & Post LLM Response ---
                 if (!trimmedReply) {
@@ -367,6 +407,7 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                     if (isSubstantive) { console.log("[Msg Handler] Response deemed substantive."); } else { console.log("[Msg Handler] Response deemed non-substantive."); }
 
                     const segments = extractTextAndCode(trimmedReply);
+
                     let lastMessageTs = null;
 
                     if (segments.length === 0) {
@@ -424,6 +465,10 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                         } catch (e) { console.warn("[Msg Handler] Failed post feedback buttons:", e.data?.error || e.message); }
                     }
                 } // End if (!trimmedReply)
+
+                await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, null); // Delete thinking message
+                thinkingMessageTs = null; // Mark as deleted
+
             } // End if (!intentHandled)
 
         } catch (error) { // Catch errors from context setup or LLM query/response path

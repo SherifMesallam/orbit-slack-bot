@@ -3,9 +3,9 @@
 version: '3.8'
 
 services:
-  # Application Service (Sagan Bot)
+  # Application Service (Orbit Bot)
   app:
-    container_name: sagan_app
+    container_name: orbit_app
     build:
       context: .
       dockerfile: Dockerfile
@@ -22,48 +22,53 @@ services:
         condition: service_healthy # Wait for db healthcheck
     restart: unless-stopped
     networks:
-      - sagan_net # Connect to custom network
+      - orbit_net # Connect to custom network
+    env:
+      - REDIS_HOST=orbit_redis
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@orbit_db:5432/${POSTGRES_DB:-orbitdb}
+      # - NODE_ENV=production # Uncomment for production
 
   # Redis Service (Optional, if using Redis via Docker)
   redis:
-    container_name: sagan_redis
-    image: redis:7-alpine
+    container_name: orbit_redis
+    image: redis:7.2-alpine
     restart: unless-stopped
     volumes:
       - redis_data:/data # Persist Redis data
     # ports: # Typically not needed to expose Redis directly to host unless debugging
     #   - "6379:6379"
     networks:
-      - sagan_net
+      - orbit_net
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
 
   # PostgreSQL Service (Optional, if using Postgres via Docker)
   db:
-    container_name: sagan_db
-    image: postgres:15-alpine
+    container_name: orbit_db
+    image: postgres:16.2-alpine
     restart: unless-stopped
     volumes:
       - postgres_data:/var/lib/postgresql/data # Persist PostgreSQL data
     env_file:
       - .env # Load DB credentials from .env file (uses POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB)
+    env:
+      - POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      - POSTGRES_DB: ${POSTGRES_DB:-orbitdb}
     # ports: # Typically not needed to expose DB directly to host unless debugging
     #   - "5432:5432"
     networks:
-      - sagan_net
+      - orbit_net
     healthcheck:
       # Use environment variables defined in .env for the check
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-sagandb}"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-orbitdb}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
 # Define Networks
 networks:
-  sagan_net: # Renamed network
+  orbit_net: # Renamed network
     driver: bridge
 
 # Define Volumes for data persistence

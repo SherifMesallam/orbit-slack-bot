@@ -1,7 +1,7 @@
 {
-  "name": "sagan-slack-bot",
+  "name": "orbit-slack-bot",
   "version": "1.0.0",
-  "description": "Sagan: An AI assistant Slack bot for Gravity Forms development, providing contextual help and GitHub integration.",
+  "description": "Orbit: An AI assistant Slack bot for Gravity Forms development, providing contextual help and GitHub integration.",
   "main": "src/server.js",
   "type": "module",
   "scripts": {
@@ -31,5 +31,9 @@
     "node": ">=18.0.0"
   },
   "author": "Rocketgenius",
-  "license": "ISC"
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/yourusername/your-repo-name/issues"
+  },
+  "url": "git+https://github.com/yourusername/your-repo-name.git"
 }
