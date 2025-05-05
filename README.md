@@ -204,8 +204,3 @@ docker-compose up -d
 | **export thread**           | reply `#saveThread` anywhere in the thread                                                                                                                                                                                                                     |
 | **delete last bot message** | reply `#delete_last_message` inside the thread                                                                                                                                                                                                                 |
 | **feedback**                | react with 👍 (good), 👌 (okay) or 👎 (bad) on any bot message                                                                                                                                                                                                 |
-
-
-## License
-
-mit – see **LICENSE**.
