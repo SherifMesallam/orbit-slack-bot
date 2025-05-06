@@ -5,7 +5,6 @@ import express from 'express';
 import morgan from 'morgan'; // Optional: HTTP request logger
 import { dispatchSlackEvent, dispatchSlackInteraction } from './core/dispatcher.js';
 import { slackClient, slackEvents } from './services/slackService.js'; // Import Slack clients/adapters
-import logger from './utils/logger.js'; // Assuming logger exists
 import { handleAppHomeOpened } from './handlers/interactionHandler.js'; // Import the App Home handler
 
 const app = express();
