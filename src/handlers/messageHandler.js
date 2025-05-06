@@ -46,6 +46,7 @@ import {
     // handleGithubLookupIntent,
     // handleFaqIntent,
 } from './commandHandler.js'; // Or import from './intentHandler.js' later
+import { exportConversationToMarkdown } from '../features/conversationExport.js';
 
 import strings from '../services/stringService.js';
 // --- Command Patterns ---
@@ -130,6 +131,35 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
         await handleDeleteLastMessageCommand(channelId, replyTarget, botUserId, slack);
         console.log(`[Msg Handler] Delete handled. Duration: ${Date.now() - handlerStartTime}ms`);
         return;
+    }
+
+    // --- Handle #saveToConversations Command ---
+    if (cleanedQuery.toLowerCase().startsWith('#savetoconversations')) {
+        console.log("[Msg Handler] #saveToConversations command detected.");
+        let savingMsgTs = null;
+        try {
+            const savingMsg = await slack.chat.postMessage({ channel: channelId, thread_ts: replyTarget, text: ":floppy_disk: Saving conversation..." });
+            savingMsgTs = savingMsg?.ts;
+
+            await exportConversationToMarkdown(channelId, replyTarget, true); // true to upload to LLM
+
+            if (savingMsgTs) {
+                await slack.chat.update({ channel: channelId, ts: savingMsgTs, text: "✅ Conversation saved successfully to AnythingLLM!" });
+            } else {
+                await slack.chat.postMessage({ channel: channelId, thread_ts: replyTarget, text: "✅ Conversation saved successfully to AnythingLLM!" });
+            }
+            console.log(`[Msg Handler] #saveToConversations handled. Duration: ${Date.now() - handlerStartTime}ms`);
+            return; // Command handled, stop further processing
+        } catch (exportError) {
+            console.error("[Msg Handler] Error during #saveToConversations:", exportError);
+            const errorText = `❌ Error saving conversation: ${exportError.message}`;
+            if (savingMsgTs) {
+                await slack.chat.update({ channel: channelId, ts: savingMsgTs, text: errorText }).catch(e => console.error("Error updating saving message with error:", e));
+            } else {
+                await slack.chat.postMessage({ channel: channelId, thread_ts: replyTarget, text: errorText }).catch(e => console.error("Error posting export error message:", e));
+            }
+            return; // Stop further processing on error
+        }
     }
 
     // --- 3. Post Initial Thinking Message ---
@@ -248,12 +278,17 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
         // --- Unknown gh: Command ---
         if (isPotentialGhCommand && !commandHandled) {
              console.warn(`[Msg Handler] Unknown command starting with '${COMMAND_PREFIX}': ${cleanedQuery}`);
-             await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { text: `❓ Unknown command. Try \`gh: latest {add-on name}\`, \`gh: review {owner}/{repo}#{number} #workspace\`, \`gh: analyze #{issue number}\`, or \`gh: api natural language lookup\`.` });
-             commandHandled = true;
+             await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { text: `❓ Unknown command. Type \`@Orbit help\` for options.` });
+             // No return here, might fall through to intent/LLM
         }
     } // End of `if (isPotentialGhCommand)`
 
-    // --- 5. Fallback: Intent Detection -> Intent Routing -> LLM Query ---
+    // --- 5. Workspace Override & Intent Detection / LLM Fallback ---
+    if (commandHandled) {
+        console.log(`[Msg Handler] Explicit gh: command handled. Duration: ${Date.now() - handlerStartTime}ms`);
+        return; // Explicit gh: command was handled, stop.
+    }
+
     if (!commandHandled) {
         console.log("[Msg Handler] No command matched. Proceeding with Intent Detection -> Routing -> LLM query.");
 
@@ -501,10 +536,8 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
             if (thinkingMessageTs) {
                  await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, null);
             }
-            console.log(`[Msg Handler - Fallback Path] Finished processing. Duration: ${Date.now() - handlerStartTime}ms`);
+            console.log(`[Msg Handler] LLM Fallback processing complete. Duration: ${Date.now() - handlerStartTime}ms`);
         }
-    } else { // Command handled branch
-        console.log(`[Msg Handler] Command handled. Duration: ${Date.now() - handlerStartTime}ms`);
     }
 }
 
