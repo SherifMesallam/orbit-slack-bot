@@ -331,47 +331,70 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                 console.log("[Msg Handler] Checking/Updating thread mapping for LLM query...");
                 const mapping = await getAnythingLLMThreadMapping(channelId, replyTarget);
                 let historyForLlm = "";
+                let llmInputText = cleanedQuery.replace(WORKSPACE_OVERRIDE_REGEX, '').trim();
+                let rawReply, trimmedReply;
+                
                 if (mapping && mapping.anythingllm_workspace_slug === finalWorkspaceSlug) {
+                    // If using existing thread in same workspace - the LLM API maintains history
                     anythingLLMThreadSlug = mapping.anythingllm_thread_slug;
                     console.log(`[Msg Handler] Using existing thread mapping for LLM: ${finalWorkspaceSlug}:${anythingLLMThreadSlug}`);
-                } else if ( mapping && finalWorkspaceSlug === fallbackWorkspace ) {
-					// Reset to original mapping if consequent questions were marked as fallback, unless intentionally (Add check)
-					anythingLLMThreadSlug = mapping.anythingllm_thread_slug;
-					finalWorkspaceSlug    = mapping.anythingllm_workspace_slug
+                    
+                    // Just send the clean message without history, User: prefix, or instruction
+                    console.log(`[Msg Handler] Querying LLM with existing thread: Ws=${finalWorkspaceSlug}, Thr=${anythingLLMThreadSlug}, Input Length=${llmInputText.length}`);
+                    
+                } else if (mapping && finalWorkspaceSlug === fallbackWorkspace) {
+                    // Reset to original mapping if consequent questions were marked as fallback, unless intentionally (Add check)
+                    anythingLLMThreadSlug = mapping.anythingllm_thread_slug;
+                    finalWorkspaceSlug = mapping.anythingllm_workspace_slug;
                     console.log(`[Msg Handler] Resting to existing thread mapping for LLM: ${finalWorkspaceSlug}:${anythingLLMThreadSlug}`);
-				} else {
+                    
+                    // Just send the clean message without history, User: prefix, or instruction
+                    console.log(`[Msg Handler] Querying LLM with existing thread: Ws=${finalWorkspaceSlug}, Thr=${anythingLLMThreadSlug}, Input Length=${llmInputText.length}`);
+                    
+                } else {
+                    // Creating a new thread (due to workspace change or first message)
                     if (mapping) {
-						console.log(`[Msg Handler] Workspace changed for LLM (Mapped: ${mapping.anythingllm_workspace_slug}, Determined: ${finalWorkspaceSlug}). Creating new thread.`);
-					}
-                    else {
-						console.log(`[Msg Handler] No existing thread mapping found for LLM. Creating new thread.`);
-					}
+                        console.log(`[Msg Handler] Workspace changed for LLM (Mapped: ${mapping.anythingllm_workspace_slug}, Determined: ${finalWorkspaceSlug}). Creating new thread.`);
+                    } else {
+                        console.log(`[Msg Handler] No existing thread mapping found for LLM. Creating new thread.`);
+                    }
 
                     // --- Fetch History for Context ---
-
-                    try {
-                        console.log(`[Msg Handler] Fetching history for new thread context from channel ${channelId}, thread ${replyTarget}`);
-                        const historyResult = await slack.conversations.replies({
-                            channel: channelId,
-                            ts: replyTarget,
-                            limit: 20 // Fetch last 20 messages in the thread
-                        });
-                        if (historyResult.ok && historyResult.messages && historyResult.messages.length > 1) {
-                            // Skip the first message (thread starter) and format the rest
-                            historyForLlm = historyResult.messages.slice(1).map(msg => {
-                                const prefix = (msg.user === botUserId || msg.bot_id) ? "Assistant:" : "User:";
-                                // Extract text, handling potential blocks structure later if needed
-                                const msgText = (msg.text || '').replace(/<@[^>]+>/g, '').trim(); // Basic mention removal
-                                return `${prefix} ${msgText}`;
-                            }).join("\n");
-                             console.log(`[Msg Handler] Fetched ${historyResult.messages.length - 1} history messages. Total length: ${historyForLlm.length}`);
-                             historyForLlm += "\n\n"; // Add separation before the new query
-                        } else {
-                           console.warn("[Msg Handler] Could not fetch significant history for new thread:", historyResult.error || 'No messages found');
+                    // Only fetch history if this is a reply in a thread (not a brand new conversation)
+                    // and there was a workspace change (mapping exists)
+                    if (threadTs && mapping) {
+                        try {
+                            console.log(`[Msg Handler] Fetching history for new thread context from channel ${channelId}, thread ${replyTarget}`);
+                            const historyResult = await slack.conversations.replies({
+                                channel: channelId,
+                                ts: replyTarget,
+                                limit: 20 // Fetch last 20 messages in the thread
+                            });
+                            if (historyResult.ok && historyResult.messages && historyResult.messages.length > 1) {
+                                // Skip the first message (thread starter) and format the rest
+                                // Filter out "Processing..." messages and format the others
+                                historyForLlm = historyResult.messages.slice(1)
+                                    .filter(msg => !(msg.text || '').includes(':hourglass_flowing_sand: Processing'))
+                                    .map(msg => {
+                                        const prefix = (msg.user === botUserId || msg.bot_id) ? "Assistant:" : "User:";
+                                        // Extract text, handling potential blocks structure later if needed
+                                        const msgText = (msg.text || '').replace(/<@[^>]+>/g, '').trim(); // Basic mention removal
+                                        return `${prefix} ${msgText}`;
+                                    }).join("\n");
+                                console.log(`[Msg Handler] Fetched ${historyResult.messages.length - 1} history messages. Total length: ${historyForLlm.length}`);
+                                // Add the current user's message to history with User: prefix
+                                historyForLlm += "\n\nUser: " + llmInputText;
+                                // Use the history as the input
+                                llmInputText = historyForLlm;
+                            } else {
+                               console.warn("[Msg Handler] Could not fetch significant history for new thread:", historyResult.error || 'No messages found');
+                            }
+                        } catch (histError) {
+                            console.error("[Msg Handler] Error fetching thread history:", histError);
+                            // Proceed without history if fetching fails
                         }
-                    } catch (histError) {
-                        console.error("[Msg Handler] Error fetching thread history:", histError);
-                        // Proceed without history if fetching fails
+                    } else {
+                        console.log(`[Msg Handler] Skipping history fetch for brand new thread (Thread TS: ${threadTs ? 'exists' : 'none'}, Mapping: ${mapping ? 'exists' : 'none'})`);
                     }
                     // --- End History Fetch ---
 
@@ -380,21 +403,15 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
 
                     await storeAnythingLLMThreadMapping(channelId, replyTarget, finalWorkspaceSlug, anythingLLMThreadSlug);
                     console.log(`[Msg Handler] Created/Updated thread mapping for LLM: ${finalWorkspaceSlug}:${anythingLLMThreadSlug}`);
+                    
+                    console.log(`[Msg Handler] Querying LLM with new thread: Ws=${finalWorkspaceSlug}, Thr=${anythingLLMThreadSlug}, Input Length=${llmInputText.length} (History included: ${!!historyForLlm})`);
                 }
 
-                // --- Step 5d: Query LLM ---
-                await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { text: strings.getWorkplaceThinkingString( finalWorkspaceSlug ) });
-
-                let llmInputText = cleanedQuery.replace(WORKSPACE_OVERRIDE_REGEX, '').trim();
-                const instruction = '\n\nIMPORTANT: Provide a clean answer without referencing internal context markers (like "CONTEXT N"). Format your response using Slack markdown (bold, italics, code blocks, links).';
-                // Prepend history if fetched
-                llmInputText = historyForLlm + "User: " + llmInputText + instruction;
-
-                console.log(`[Msg Handler] Querying LLM: Ws=${finalWorkspaceSlug}, Thr=${anythingLLMThreadSlug}, Input Length=${llmInputText.length} (History included: ${!!historyForLlm})`);
-                const rawReply = await queryLlm(finalWorkspaceSlug, anythingLLMThreadSlug, llmInputText);
-                const trimmedReply = typeof rawReply === 'string' ? rawReply.trim() : "";
-
-
+                // --- Step 5d: Query LLM (common for all scenarios) ---
+                await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { text: strings.getWorkplaceThinkingString(finalWorkspaceSlug) });
+                
+                rawReply = await queryLlm(finalWorkspaceSlug, anythingLLMThreadSlug, llmInputText);
+                trimmedReply = typeof rawReply === 'string' ? rawReply.trim() : "";
 
                 // --- Step 5e: Process & Post LLM Response ---
                 if (!trimmedReply) {
