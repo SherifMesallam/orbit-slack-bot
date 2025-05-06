@@ -215,7 +215,8 @@ async function uploadToAnythingLLM(content, baseFilename) {
         }
 
         // Attempt to get docPath from 'location', fallback to 'file_name'
-        docPath = 'custom-documents/' + uploadResponseData.document.file_name + '-' + uploadResponseData.document.id + '.json';
+		const fileName =  uploadResponseData.document.file_name + '-' + uploadResponseData.document.id + '.json';
+        docPath = 'custom-documents/' + fileName;
 
         if (!docPath) {
             throw new Error(`Essential document path (location or file_name) not found in upload response: ${JSON.stringify(uploadResponseData.document)}`);
@@ -225,7 +226,7 @@ async function uploadToAnythingLLM(content, baseFilename) {
 
         // --- Move File ---
         const targetFolder = 'conversations'; // Target folder within AnythingLLM
-        const targetPath = `${targetFolder}/${uploadResponseData.document.file_name}`;
+        const targetPath = `${targetFolder}/${fileName}`;
         console.log(`[Export/LLM] Moving doc from '${docPath}' to '${targetPath}'`);
         const moveResponse = await axios.post(`${anythingLLMBaseUrl}/api/v1/document/move-files`, {
             files: [{ from: docPath, to: targetPath }]
