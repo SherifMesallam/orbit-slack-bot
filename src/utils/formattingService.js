@@ -209,20 +209,17 @@ export function extractTextAndCode(rawText) {
 
 
     const segments = [];
-    // Regex: Improved slightly for clarity and edge cases like hyphens in language
-    // ^``` : Start of line followed by ```
-    //  *([\w\-]+)? : Optional language identifier (word chars OR hyphen), captured in group 1
-    //  *\r?\n? : Optional space, optional CR, optional newline
-    // ([\s\S]*?) : Capture content (any char including newlines, non-greedy), captured in group 2
-    // \r?\n?```$ : Optional CR, optional newline, ```, end of line
-    // gm : Global (find all) and Multiline (^$ match line breaks)
-    const codeBlockRegex = /^``` *([\w\-]+)? *\r?\n?([\s\S]*?)\r?\n?```$/gm;
+    // Improved regex that matches code blocks more flexibly:
+    // 1. Allows code blocks to appear anywhere, not just at line start
+    // 2. Better handling of language identifiers
+    // 3. More permissive of whitespace variations
+    const codeBlockRegex = /```([\w\-]+)?\s*([\s\S]*?)\s*```/gm;
+    
     let lastIndex = 0;
     let match;
 
-    // Handle case where the entire text is one code block
-     // Reset lastIndex before exec if using the same regex instance repeatedly matters (it does)
-     codeBlockRegex.lastIndex = 0;
+    // Reset lastIndex before exec
+    codeBlockRegex.lastIndex = 0;
 
     while ((match = codeBlockRegex.exec(rawText)) !== null) {
         // Use 'text' as default language if identifier is missing or empty
@@ -425,43 +422,81 @@ export function markdownToRichTextBlock(markdown, blockId = `block_${Date.now()}
     const trimmedMarkdown = markdown.trim();
 
     // Detect if the *entire* trimmed input is just a single code block
-    // Regex adjusted to be less strict about internal whitespace/newlines around content
+    // More permissive regex that matches code blocks anywhere
     const codeBlockMatch = trimmedMarkdown.match(/^```([\w-]*)?\s*([\s\S]*?)\s*```$/);
 
     if (codeBlockMatch) {
         // Pure Code Block: Use rich_text_preformatted
+        const language = codeBlockMatch[1] || '';
         const codeContent = codeBlockMatch[2] || ''; // Extract content
-        // Note: Slack API might technically allow empty text here, but often pointless.
-        // Let's allow empty code blocks for now unless it causes issues.
-        // console.log(`[Formatting Service] Detected pure code block.`);
+        
+        // If there's a language identifier, add it as a comment at the beginning
+        const displayContent = language 
+            ? `// Language: ${language}\n${codeContent}` 
+            : codeContent;
 
-        // No border for preformatted text in Slack UI as of recent updates
         return {
             type: "rich_text",
             block_id: blockId,
             elements: [{
                 type: "rich_text_preformatted",
-                 // border: 0, // Deprecated or removed feature in Slack UI
-                elements: [{ type: "text", text: codeContent }] // Raw code content inside text element
+                elements: [{ type: "text", text: displayContent }]
             }]
         };
     } else {
-        // Regular Text or Mixed Content: Use rich_text_section
-        // console.log(`[Formatting Service] Parsing as rich_text_section.`);
-
-        // Use the original markdown (not trimmed) for parsing inline, preserves leading/trailing spaces if needed by context
+        // Check for embedded code blocks using extractTextAndCode
+        const segments = extractTextAndCode(trimmedMarkdown);
+        
+        // If we have multiple segments with at least one code block, handle them specially
+        if (segments.length > 0 && segments.some(seg => seg.type === 'code')) {
+            const richTextElements = [];
+            
+            for (const segment of segments) {
+                if (segment.type === 'text') {
+                    // Process text segments with inline formatting
+                    const textElements = parseInlineFormatting(segment.content);
+                    if (textElements.length > 0) {
+                        richTextElements.push({
+                            type: "rich_text_section",
+                            elements: textElements
+                        });
+                    }
+                } else if (segment.type === 'code') {
+                    // Process code segments
+                    const language = segment.language || '';
+                    const codeContent = segment.content || '';
+                    
+                    // If there's a language identifier, add it as a comment
+                    const displayContent = language 
+                        ? `// Language: ${language}\n${codeContent}` 
+                        : codeContent;
+                    
+                    richTextElements.push({
+                        type: "rich_text_preformatted",
+                        elements: [{ type: "text", text: displayContent }]
+                    });
+                }
+            }
+            
+            if (richTextElements.length > 0) {
+                return {
+                    type: "rich_text",
+                    block_id: blockId,
+                    elements: richTextElements
+                };
+            }
+        }
+        
+        // Default case: Regular Text or no special segments detected
         let sectionElements = parseInlineFormatting(markdown);
 
-        // *** Safeguard Filter: Apply filter again here ***
-        // This ensures compliance even if parseInlineFormatting filter fails or is removed.
+        // Safeguard Filter
         sectionElements = sectionElements.filter(element => {
             return element.type !== "text" || (element.text && element.text.length > 0);
         });
 
-        // If parsing + filtering resulted in NO elements, we cannot create a valid section block.
         if (sectionElements.length === 0) {
             console.warn(`[Formatting Service] No valid rich text elements generated or remained after filtering for markdownToRichTextBlock section. Input: "${markdown.substring(0,100)}..."`);
-            // Decide what to return: null, or a block with placeholder? Returning null is safer.
             return null;
         }
 
@@ -470,7 +505,7 @@ export function markdownToRichTextBlock(markdown, blockId = `block_${Date.now()}
             block_id: blockId,
             elements: [{
                 type: "rich_text_section",
-                elements: sectionElements // Use the filtered array of text, link, styled text elements
+                elements: sectionElements
             }]
         };
     }
