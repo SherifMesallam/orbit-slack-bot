@@ -144,9 +144,9 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
             await exportConversationToMarkdown(channelId, replyTarget, true); // true to upload to LLM
 
             if (savingMsgTs) {
-                await slack.chat.update({ channel: channelId, ts: savingMsgTs, text: "✅ Information successfully stored for future reference." });
+                await slack.chat.update({ channel: channelId, ts: savingMsgTs, text: "✅ Logged for future use, anonymized and secure." });
             } else {
-                await slack.chat.postMessage({ channel: channelId, thread_ts: replyTarget, text: "✅ Information successfully stored for future reference." });
+                await slack.chat.postMessage({ channel: channelId, thread_ts: replyTarget, text: "✅ Logged for future use, anonymized and secure." });
             }
             console.log(`[Msg Handler] #remember handled. Duration: ${Date.now() - handlerStartTime}ms`);
             return; // Command handled, stop further processing
