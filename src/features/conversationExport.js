@@ -215,7 +215,7 @@ async function uploadToAnythingLLM(content, baseFilename) {
         }
 
         // Attempt to get docPath from 'location', fallback to 'file_name'
-        docPath = 'custom-documents/' + uploadResponseData.document.file_name;
+        docPath = 'custom-documents/' + uploadResponseData.document.file_name + '-' + uploadResponseData.document.id + '.json';
 
         if (!docPath) {
             throw new Error(`Essential document path (location or file_name) not found in upload response: ${JSON.stringify(uploadResponseData.document)}`);
