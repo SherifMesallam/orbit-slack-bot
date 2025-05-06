@@ -1,4 +1,3 @@
-
 // src/app.js
 // Configures the Express application and routes requests to the dispatcher.
 
@@ -6,6 +5,8 @@ import express from 'express';
 import morgan from 'morgan'; // Optional: HTTP request logger
 import { dispatchSlackEvent, dispatchSlackInteraction } from './core/dispatcher.js';
 import { slackClient, slackEvents } from './services/slackService.js'; // Import Slack clients/adapters
+import logger from './utils/logger.js'; // Assuming logger exists
+import { handleAppHomeOpened } from './handlers/interactionHandler.js'; // Import the App Home handler
 
 const app = express();
 
@@ -29,6 +30,16 @@ if (slackEvents?.requestListener) {
     // The adapter provides the body in its event callback.
     slackEvents.on('message', (event, body) => dispatchSlackEvent(body));
     slackEvents.on('app_mention', (event, body) => dispatchSlackEvent(body));
+
+    // --- App Home Handler Registration ---
+    // Register the App Home event listener to use the imported handler
+    slackEvents.on('app_home_opened', (event, body) => {
+        // The event adapter might pass the raw body, the handler expects the parsed event object.
+        // Pass the event object directly which is usually the first argument.
+        handleAppHomeOpened(event); // Call the imported handler
+    });
+    // --- End App Home Handler Registration ---
+
     // Add other event listeners here as needed, calling dispatchSlackEvent(body)
     slackEvents.on('error', (error) => {
          console.error('[App] Slack Events Adapter Error:', error.name || 'Unknown Error', error.code || '', error.message || '');

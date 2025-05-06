@@ -1,4 +1,3 @@
-
 // src/handlers/interactionHandler.js
 // Handles interactions originating from Slack interactive components (buttons, modals).
 
@@ -6,6 +5,67 @@
 import { storeFeedback, dbPool } from '../services/dbService.js';
 import { slackClient } from '../services/slackService.js'; // Use the initialized client
 import { databaseUrl } from '../config.js'; // To check if DB is enabled
+import logger from '../utils/logger.js'; // Assuming logger exists
+
+// --- App Home Handler ---
+/**
+ * Handles the 'app_home_opened' event by publishing the App Home view.
+ * @param {object} event - The event payload from Slack.
+ */
+export const handleAppHomeOpened = async (event) => {
+    if (!event || !event.user) {
+        logger.warn('[AppHomeHandler] Received app_home_opened event without user ID.', { event });
+        return;
+    }
+    const userId = event.user;
+    logger.info(`[AppHomeHandler] User ${userId} opened App Home.`);
+
+    try {
+        // Define the basic App Home view
+        const homeView = {
+            user_id: userId,
+            view: {
+                type: 'home',
+                blocks: [
+                    {
+                        type: 'section',
+                        text: {
+                            type: 'mrkdwn',
+                            text: `*Welcome to Orbit, <@${userId}>!* :rocket:`
+                        }
+                    },
+                    {
+                        type: 'divider'
+                    },
+                    {
+                        type: 'section',
+                        text: {
+                            type: 'mrkdwn',
+                            text: `I'm here to help with your Gravity Forms development tasks. You can ask me questions, interact with GitHub, and save important conversations.\\n\\nMention me (\`@Orbit\`) in any channel or DM me to get started.`
+                        }
+                    },
+                     {
+                        type: 'context',
+                        elements: [
+                            {
+                                type: 'mrkdwn',
+                                text: 'Use the message input below to interact with me.'
+                            }
+                        ]
+                    }
+                ]
+            }
+        };
+
+        // Publish the view to the App Home tab
+        await slackClient.views.publish(homeView);
+        logger.info(`[AppHomeHandler] Successfully published home view for user ${userId}.`);
+
+    } catch (error) {
+        logger.error(`[AppHomeHandler] Failed to publish App Home view for user ${userId}:`, error);
+    }
+};
+// --- End App Home Handler ---
 
 /**
  * Processes incoming interaction payloads (buttons, modals, etc.).
@@ -182,4 +242,4 @@ async function processBlockAction(payload, slack) {
      }
 }
 
-console.log("[Interaction Handler] Initialized.");
+console.log("[Interaction Handler] Initialized (including App Home handler)." );
