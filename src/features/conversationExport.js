@@ -1,4 +1,3 @@
-
 // Moved from root src/
 // Handles exporting Slack conversations to Markdown and optionally uploading to AnythingLLM.
 
@@ -169,8 +168,8 @@ async function uploadToAnythingLLM(content, baseFilename) {
         const titleQuery = `${titlePrompt}\n\n---\n\n${snippet}\n\n---`;
         const chatResponse = await axios.post(
             `${anythingLLMBaseUrl}/api/v1/workspace/all/chat`, // Use 'all' or a general workspace for titling
-            { message: titleQuery, mode: 'query' }, // Use query mode maybe?
-            { headers: { 'Authorization': `Bearer ${anythingLLMApiKey}`, 'Content-Type': 'application/json', 'Accept': 'application/json' }, timeout: 20000 } // 20s timeout for title
+            { message: titleQuery, mode: 'chat' }, // Use query mode maybe?
+            { headers: { 'Authorization': `Bearer ${anythingLLMApiKey}`, 'Content-Type': 'application/json', 'Accept': 'application/json' }, timeout: 200000 } // 20s timeout for title
         );
         let suggestedTitle = chatResponse.data?.textResponse?.trim();
         if (suggestedTitle) {
@@ -209,11 +208,19 @@ async function uploadToAnythingLLM(content, baseFilename) {
         });
         uploadResponseData = uploadResponse.data;
         console.log('[Export/LLM] Upload Response:', uploadResponseData);
-        if (!uploadResponseData.success || !uploadResponseData.documents?.[0]?.location) {
-            throw new Error(`Upload failed or response missing data: ${JSON.stringify(uploadResponseData)}`);
+
+        // Check for success and the presence of the document object
+        if (!uploadResponseData.success || !uploadResponseData.document) {
+            throw new Error(`Upload failed or document object missing in response: ${JSON.stringify(uploadResponseData)}`);
         }
-        docPath = uploadResponseData.documents[0].location; // Path within AnythingLLM's storage
-        console.log(`[Export/LLM] Document uploaded successfully to path: ${docPath}`);
+
+        // Attempt to get docPath from 'location', fallback to 'file_name'
+        docPath = uploadResponseData.document.location || uploadResponseData.document.file_name;
+
+        if (!docPath) {
+            throw new Error(`Essential document path (location or file_name) not found in upload response: ${JSON.stringify(uploadResponseData.document)}`);
+        }
+        console.log(`[Export/LLM] Document uploaded successfully. Using path for move: ${docPath}`);
         // --- End Upload File ---
 
         // --- Move File ---
