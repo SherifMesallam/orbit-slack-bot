@@ -5,7 +5,6 @@
 import { storeFeedback, dbPool } from '../services/dbService.js';
 import { slackClient } from '../services/slackService.js'; // Use the initialized client
 import { databaseUrl } from '../config.js'; // To check if DB is enabled
-import logger from '../utils/logger.js'; // Assuming logger exists
 
 // --- App Home Handler ---
 /**
@@ -14,11 +13,11 @@ import logger from '../utils/logger.js'; // Assuming logger exists
  */
 export const handleAppHomeOpened = async (event) => {
     if (!event || !event.user) {
-        logger.warn('[AppHomeHandler] Received app_home_opened event without user ID.', { event });
+        console.log('[AppHomeHandler] Received app_home_opened event without user ID.', { event });
         return;
     }
     const userId = event.user;
-    logger.info(`[AppHomeHandler] User ${userId} opened App Home.`);
+    console.log(`[AppHomeHandler] User ${userId} opened App Home.`);
 
     try {
         // Define the basic App Home view
@@ -59,10 +58,10 @@ export const handleAppHomeOpened = async (event) => {
 
         // Publish the view to the App Home tab
         await slackClient.views.publish(homeView);
-        logger.info(`[AppHomeHandler] Successfully published home view for user ${userId}.`);
+        console.log(`[AppHomeHandler] Successfully published home view for user ${userId}.`);
 
     } catch (error) {
-        logger.error(`[AppHomeHandler] Failed to publish App Home view for user ${userId}:`, error);
+        console.log(`[AppHomeHandler] Failed to publish App Home view for user ${userId}:`, error);
     }
 };
 // --- End App Home Handler ---
