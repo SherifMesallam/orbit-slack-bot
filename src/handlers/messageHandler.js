@@ -134,8 +134,8 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
     }
 
     // --- Handle #saveToConversations Command ---
-    if (cleanedQuery.toLowerCase().startsWith('#savetoconversations')) {
-        console.log("[Msg Handler] #saveToConversations command detected.");
+    if (cleanedQuery.toLowerCase().startsWith('#remember')) {
+        console.log("[Msg Handler] #remember command detected.");
         let savingMsgTs = null;
         try {
             const savingMsg = await slack.chat.postMessage({ channel: channelId, thread_ts: replyTarget, text: ":floppy_disk: Saving conversation..." });
@@ -144,14 +144,14 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
             await exportConversationToMarkdown(channelId, replyTarget, true); // true to upload to LLM
 
             if (savingMsgTs) {
-                await slack.chat.update({ channel: channelId, ts: savingMsgTs, text: "✅ Conversation saved successfully to AnythingLLM!" });
+                await slack.chat.update({ channel: channelId, ts: savingMsgTs, text: "✅ Information successfully stored for future reference." });
             } else {
-                await slack.chat.postMessage({ channel: channelId, thread_ts: replyTarget, text: "✅ Conversation saved successfully to AnythingLLM!" });
+                await slack.chat.postMessage({ channel: channelId, thread_ts: replyTarget, text: "✅ Information successfully stored for future reference." });
             }
-            console.log(`[Msg Handler] #saveToConversations handled. Duration: ${Date.now() - handlerStartTime}ms`);
+            console.log(`[Msg Handler] #remember handled. Duration: ${Date.now() - handlerStartTime}ms`);
             return; // Command handled, stop further processing
         } catch (exportError) {
-            console.error("[Msg Handler] Error during #saveToConversations:", exportError);
+            console.error("[Msg Handler] Error during #remember:", exportError);
             const errorText = `❌ Error saving conversation: ${exportError.message}`;
             if (savingMsgTs) {
                 await slack.chat.update({ channel: channelId, ts: savingMsgTs, text: errorText }).catch(e => console.error("Error updating saving message with error:", e));
@@ -368,24 +368,24 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                 let historyForLlm = "";
                 let llmInputText = cleanedQuery.replace(WORKSPACE_OVERRIDE_REGEX, '').trim();
                 let rawReply, trimmedReply;
-                
+
                 if (mapping && mapping.anythingllm_workspace_slug === finalWorkspaceSlug) {
                     // If using existing thread in same workspace - the LLM API maintains history
                     anythingLLMThreadSlug = mapping.anythingllm_thread_slug;
                     console.log(`[Msg Handler] Using existing thread mapping for LLM: ${finalWorkspaceSlug}:${anythingLLMThreadSlug}`);
-                    
+
                     // Just send the clean message without history, User: prefix, or instruction
                     console.log(`[Msg Handler] Querying LLM with existing thread: Ws=${finalWorkspaceSlug}, Thr=${anythingLLMThreadSlug}, Input Length=${llmInputText.length}`);
-                    
+
                 } else if (mapping && finalWorkspaceSlug === fallbackWorkspace) {
                     // Reset to original mapping if consequent questions were marked as fallback, unless intentionally (Add check)
                     anythingLLMThreadSlug = mapping.anythingllm_thread_slug;
                     finalWorkspaceSlug = mapping.anythingllm_workspace_slug;
                     console.log(`[Msg Handler] Resting to existing thread mapping for LLM: ${finalWorkspaceSlug}:${anythingLLMThreadSlug}`);
-                    
+
                     // Just send the clean message without history, User: prefix, or instruction
                     console.log(`[Msg Handler] Querying LLM with existing thread: Ws=${finalWorkspaceSlug}, Thr=${anythingLLMThreadSlug}, Input Length=${llmInputText.length}`);
-                    
+
                 } else {
                     // Creating a new thread (due to workspace change or first message)
                     if (mapping) {
@@ -438,13 +438,13 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
 
                     await storeAnythingLLMThreadMapping(channelId, replyTarget, finalWorkspaceSlug, anythingLLMThreadSlug);
                     console.log(`[Msg Handler] Created/Updated thread mapping for LLM: ${finalWorkspaceSlug}:${anythingLLMThreadSlug}`);
-                    
+
                     console.log(`[Msg Handler] Querying LLM with new thread: Ws=${finalWorkspaceSlug}, Thr=${anythingLLMThreadSlug}, Input Length=${llmInputText.length} (History included: ${!!historyForLlm})`);
                 }
 
                 // --- Step 5d: Query LLM (common for all scenarios) ---
                 await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { text: strings.getWorkplaceThinkingString(finalWorkspaceSlug) });
-                
+
                 rawReply = await queryLlm(finalWorkspaceSlug, anythingLLMThreadSlug, llmInputText);
                 trimmedReply = typeof rawReply === 'string' ? rawReply.trim() : "";
 
