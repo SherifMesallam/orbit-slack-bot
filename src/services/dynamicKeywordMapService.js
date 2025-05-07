@@ -138,7 +138,7 @@ export async function getDynamicWorkspaceKeywordMap(forceRefresh = false) {
     }
 
     // 2. Check Redis cache
-    if (!forceRefresh && isRedisReady() && redisClient && KEYWORD_MAP_CACHE_KEY) {
+    if (!forceRefresh && isRedisReady && redisClient && KEYWORD_MAP_CACHE_KEY) {
         try {
             const cachedData = await redisClient.get(KEYWORD_MAP_CACHE_KEY);
             if (cachedData) {
@@ -165,7 +165,7 @@ export async function getDynamicWorkspaceKeywordMap(forceRefresh = false) {
         inMemoryKeywordMapCache = newMap; // Update memory cache
         memoryCacheTimestamp = now;
 
-        if (isRedisReady() && redisClient && KEYWORD_MAP_CACHE_KEY) {
+        if (isRedisReady && redisClient && KEYWORD_MAP_CACHE_KEY) {
             try {
                 await redisClient.set(KEYWORD_MAP_CACHE_KEY, JSON.stringify(newMap), {
                     EX: KEYWORD_MAP_CACHE_TTL_SECONDS || 3600
