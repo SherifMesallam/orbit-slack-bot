@@ -179,3 +179,70 @@ async function fetchAndGenerateMapFromGitHub(token, org) {
         return null; // Return null on error
     }
 }
+
+/**
+ * Fetches the dynamic workspace keyword map, using cache if available.
+ * @param {boolean} [forceRefresh=false] - If true, bypasses cache and fetches fresh from GitHub.
+ * @returns {Promise<object | null>} The workspace keyword map or null on failure.
+ */
+export async function getDynamicWorkspaceKeywordMap(forceRefresh = false) {
+    const now = Date.now();
+    const cacheTTLms = (KEYWORD_MAP_CACHE_TTL_SECONDS || 3600) * 1000; // Default to 1 hour
+
+    // 1. Check in-memory cache
+    if (!forceRefresh && inMemoryKeywordMapCache && (now - memoryCacheTimestamp < cacheTTLms)) {
+        console.log("[KeywordMap Service] In-memory cache HIT.");
+        return inMemoryKeywordMapCache;
+    }
+
+    // 2. Check Redis cache
+    if (!forceRefresh && isRedisReady && redisClient && KEYWORD_MAP_CACHE_KEY) {
+        try {
+            const cachedData = await redisClient.get(KEYWORD_MAP_CACHE_KEY);
+            if (cachedData) {
+                const map = JSON.parse(cachedData);
+                console.log("[KeywordMap Service] Redis cache HIT.");
+                inMemoryKeywordMapCache = map; // Update memory cache
+                memoryCacheTimestamp = now;
+                return map;
+            }
+            console.log("[KeywordMap Service] Redis cache MISS.");
+        } catch (err) {
+            console.error("[KeywordMap Service/Redis Error] Get keyword map cache failed:", err);
+        }
+    }
+
+    // 3. Fetch from GitHub API
+    console.log("[KeywordMap Service] Fetching fresh keyword map from GitHub.");
+    const newMap = await fetchAndGenerateMapFromGitHub(githubToken, GITHUB_ORG_FOR_KEYWORDS);
+
+    if (newMap) {
+        // Log the newly generated map when fetched fresh from GitHub
+        console.log("[KeywordMap Service] Successfully fetched and generated new keyword map:", JSON.stringify(newMap, null, 2)); // Pretty print JSON
+
+        inMemoryKeywordMapCache = newMap; // Update memory cache
+        memoryCacheTimestamp = now;
+
+        if (isRedisReady && redisClient && KEYWORD_MAP_CACHE_KEY) {
+            try {
+                await redisClient.set(KEYWORD_MAP_CACHE_KEY, JSON.stringify(newMap), {
+                    EX: KEYWORD_MAP_CACHE_TTL_SECONDS || 3600
+                });
+                console.log("[KeywordMap Service] Updated Redis cache with new keyword map.");
+            } catch (cacheErr) {
+                console.error("[KeywordMap Service/Redis Error] Set keyword map cache failed:", cacheErr);
+            }
+        }
+        return newMap;
+    } else {
+        console.error("[KeywordMap Service] Failed to fetch or generate new keyword map from GitHub.");
+        // If fetching fails, try to return stale cache if available and not forced refresh
+        if (inMemoryKeywordMapCache) {
+            console.warn("[KeywordMap Service] Returning stale in-memory cache due to fetch failure.");
+            return inMemoryKeywordMapCache;
+        }
+        return null; // Ultimate failure
+    }
+}
+
+console.log("[Dynamic KeywordMap Service] Initialized.");
