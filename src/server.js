@@ -1,4 +1,3 @@
-
 // src/server.js
 // Main application entry point. Initializes services, starts the server, handles shutdown.
 
@@ -6,10 +5,24 @@ import process from 'process';
 import app from './app.js'; // Import the configured Express app
 import { port, validateConfig } from './config.js';
 import { shutdownServices } from './services/shutdown.js';
+// Import the new initializer from the services index
+import { initializeKeywordMapService } from './services/index.js';
 
 // 1. Validate Configuration
 // This will exit if critical variables are missing.
 validateConfig();
+
+// Call the keyword map initializer after config validation and Redis (implicit) init
+// This needs to be async, so we'll wrap this part or make an async IIFE
+(async () => {
+    try {
+        await initializeKeywordMapService();
+    } catch (initError) {
+        console.error("[Server] Error during keyword map service initialization:", initError);
+        // Decide if this is a critical error that should prevent startup
+        // process.exit(1); 
+    }
+})();
 
 // 2. Initialize Services (Implicitly by importing modules)
 // Ensure services are imported so their initialization logic runs.

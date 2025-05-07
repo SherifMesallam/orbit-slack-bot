@@ -28,5 +28,6 @@ export { detectIntentAndWorkspace } from '../ai/intentDetectionService.js';
 
 // Export items from dynamicKeywordMapService (New)
 export { getDynamicWorkspaceKeywordMap } from './dynamicKeywordMapService.js';
+export { initializeKeywordMapService } from './dynamicKeywordMapService.js';
 
 console.log("[Services Index] Service functions exported.");
