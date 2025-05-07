@@ -96,13 +96,16 @@ export const anythingLLMApiKey = process.env.LLM_API_KEY;
 export const githubToken = process.env.GITHUB_TOKEN || null;
 
 /** @type {string | null} AnythingLLM workspace slug used for the generic API command (`gh: api`, `/gh-api`) to generate API call details. REQUIRED for generic API command. */
-export const githubWorkspaceSlug = process.env.GITHUB_WORKSPACE_SLUG || null;
+export const githubWorkspaceSlug = process.env.GITHUB_WORKSPACE_SLUG || 'github';
 
 /** @type {string | null} Optional AnythingLLM workspace slug used to format JSON responses from the generic API command into Markdown. */
-export const formatterWorkspaceSlug = process.env.FORMATTER_WORKSPACE_SLUG || null;
+export const formatterWorkspaceSlug = process.env.FORMATTER_WORKSPACE_SLUG || 'formatter';
 
 /** @type {string} Default GitHub owner username/organization for commands unless specified otherwise (e.g., `gh: analyze issue #123` defaults to this owner). */
 export const GITHUB_OWNER = process.env.GITHUB_OWNER || 'gravityforms';
+
+/** @type {string} GitHub organization name to fetch repositories from for dynamic keyword map generation. */
+export const GITHUB_ORG_FOR_KEYWORDS = process.env.GITHUB_ORG_FOR_KEYWORDS || 'gravityforms'; // IMPORTANT: Set this to your GitHub Org name
 
 
 /**
@@ -151,6 +154,12 @@ export const RESET_HISTORY_TTL = 300; // 5 minutes
 
 /** @type {number} Time-to-live (seconds) for the cached list of available AnythingLLM workspaces. */
 export const WORKSPACE_LIST_CACHE_TTL = 3600; // 1 hour
+
+/** @type {string} Redis key used to cache the dynamically generated workspace keyword map. */
+export const KEYWORD_MAP_CACHE_KEY = process.env.KEYWORD_MAP_CACHE_KEY || 'dynamicWorkspaceKeywordMap';
+
+/** @type {number} Time-to-live (seconds) for the cached dynamic workspace keyword map. */
+export const KEYWORD_MAP_CACHE_TTL_SECONDS = parseInt(process.env.KEYWORD_MAP_CACHE_TTL_SECONDS || '3600', 10); // 1 hour
 
 // Note: THREAD_WORKSPACE_TTL is effectively managed by the DB last_accessed_at timestamp now.
 

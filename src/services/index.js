@@ -26,5 +26,7 @@ export { shutdownServices } from './shutdown.js';
 // Ensure the path is correct relative to this index.js file
 export { detectIntentAndWorkspace } from '../ai/intentDetectionService.js';
 
+// Export items from dynamicKeywordMapService (New)
+export { getDynamicWorkspaceKeywordMap } from './dynamicKeywordMapService.js';
 
 console.log("[Services Index] Service functions exported.");

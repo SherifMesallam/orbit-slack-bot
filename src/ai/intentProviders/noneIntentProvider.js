@@ -1,38 +1,67 @@
 // src/ai/intentProviders/noneIntentProvider.js
-// Default provider that performs no intent detection. It acts as a passthrough.
+// Default provider that performs no intent detection. It acts as a passthrough,
+// but suggests a workspace based on #mention or keyword matching.
 
 import { fallbackWorkspace } from "../../config.js";
+// Import the new service function
+import { getDynamicWorkspaceKeywordMap } from '../../services/index.js'; // Adjusted path
 
-const workspaceKeywordMap = {
-  "gravityformssquare": ["gravityformssquare", "square", "square payments", "square add-on"],
-  "gravityformsstripe": ["gravityformsstripe", "stripe", "stripe payments", "stripe add-on"],
-  "gravityformsppcp": ["gravityformsppcp", "ppcp", "gravityforms paypal", "paypal", "paypal payments"],
-  "gravityforms": ["gravityforms", "core", "the main add-on", "gravityforms core"],
-  "gravityflow": ["gravityflow", "flow", "flow add-on"],
-  "gravitypackages": ["gravitypackages", "packages", " packages add-on"],
-};
+// REMOVE the old hardcoded workspaceKeywordMap
+// const workspaceKeywordMap = {
+//   "gravityformssquare": ["gravityformssquare", "square", "square payments", "square add-on"],
+//   "gravityformsstripe": ["gravityformsstripe", "stripe", "stripe payments", "stripe add-on"],
+//   "gravityformsppcp": ["gravityformsppcp", "ppcp", "gravityforms paypal", "paypal", "paypal payments"],
+//   "gravityforms": ["gravityforms", "core", "the main add-on", "gravityforms core"],
+//   "gravityflow": ["gravityflow", "flow", "flow add-on"],
+//   "gravitypackages": ["gravitypackages", "packages", " packages add-on"],
+// };
 
 /**
  * Default "provider" that always returns null intent and confidence 0.
  * This effectively disables intent detection when selected via configuration.
  *
- * @param {string} query - The user's input query (ignored).
+ * @param {string} query - The user's input query.
  * @param {string[]} [availableIntents=[]] - List of possible intents (ignored).
- * @param {string[]} [availableWorkspaces=[]] - List of available workspace slugs (ignored).
+ * @param {string[]} [availableWorkspaces=[]] - List of available workspace slugs (used by findBestKeyword indirectly if map keys align with these).
  * @returns {Promise<{ intent: string | null, confidence: number, suggestedWorkspace: string | null }>}
- * Always returns intent: null, confidence: 0, suggestedWorkspace: null.
+ * Always returns intent: null, confidence: 0, suggestedWorkspace based on logic.
  */
 export async function detectIntent(query, availableIntents = [], availableWorkspaces = []) {
-	console.log("[None Intent Provider] Executed (no detection performed).");
+	console.log("[None Intent Provider] Executed.");
 	const workSpaceRegex = /#(\w+)/; // # followed by one or more word characters (captured)
-	const match = workSpaceRegex.exec( query );
-	let workspace =  match ? match[1] : null;
+	const match = workSpaceRegex.exec(query);
+	let suggestedWsFromHash = match ? match[1] : null;
 
-	if ( null == workspace ) {
-		workspace = findBestKeyword( query, workspaceKeywordMap, fallbackWorkspace );
+	let finalSuggestedWorkspace = null;
+
+	if (suggestedWsFromHash) {
+		console.log(`[None Intent Provider] Workspace from #mention: ${suggestedWsFromHash}`);
+		finalSuggestedWorkspace = suggestedWsFromHash;
+	} else {
+		console.log("[None Intent Provider] No #mention for workspace. Attempting keyword match.");
+		const dynamicKeywordMap = await getDynamicWorkspaceKeywordMap();
+
+		if (dynamicKeywordMap && Object.keys(dynamicKeywordMap).length > 0) {
+			const workspaceFromKeywords = findBestKeyword(query, dynamicKeywordMap, fallbackWorkspace);
+			if (workspaceFromKeywords && workspaceFromKeywords !== fallbackWorkspace) {
+				console.log(`[None Intent Provider] Workspace from dynamic keywords: ${workspaceFromKeywords}`);
+				finalSuggestedWorkspace = workspaceFromKeywords;
+			} else if (workspaceFromKeywords === fallbackWorkspace) {
+				 console.log(`[None Intent Provider] Keyword search resulted in fallback: ${fallbackWorkspace}`);
+				 finalSuggestedWorkspace = fallbackWorkspace; // Explicitly use fallback if keyword search defaulted
+			} else {
+				console.log("[None Intent Provider] No specific workspace from keywords, will use fallback if defined.");
+				finalSuggestedWorkspace = fallbackWorkspace; // Default to fallback if keywords yield nothing specific
+			}
+		} else {
+			console.warn("[None Intent Provider] Dynamic keyword map is empty or unavailable. Using fallback workspace.");
+			finalSuggestedWorkspace = fallbackWorkspace;
+		}
 	}
-	// This provider explicitly returns the neutral "no detection" result.
-	return { intent: null, confidence: 0, suggestedWorkspace: workspace };
+
+	// Ensure the final suggested workspace is validated against availableWorkspaces by the calling service (workspaceService.determineWorkspace)
+	// This provider only suggests; determineWorkspace confirms availability.
+	return { intent: null, confidence: 0, suggestedWorkspace: finalSuggestedWorkspace };
 }
 
 /**
@@ -46,8 +75,8 @@ export async function detectIntent(query, availableIntents = [], availableWorksp
  * and values are arrays of search terms (strings).
  * Example:
  * {
- * "key1": ["search term a", "search term b"],
- * "key2": ["search term c", "search term d"]
+ *   "key1": ["search term a", "search term b"],
+ *   "key2": ["search term c", "search term d"]
  * }
  * @param {*} [defaultValue=null] - The value to return if no match is found,
  * if inputs are invalid, or in case of a tie. Defaults to null if not provided.
@@ -55,90 +84,93 @@ export async function detectIntent(query, availableIntents = [], availableWorksp
  * or the defaultValue.
  */
 function findBestKeyword(text, keywordMap, defaultValue = null) {
-  // --- Input Validation ---
-  if (!text || typeof text !== 'string' || !keywordMap || typeof keywordMap !== 'object' || Object.keys(keywordMap).length === 0) {
-    console.error("Invalid input provided. Returning default value.");
-    return defaultValue;
-  }
+	// --- Input Validation ---
+	if (!text || typeof text !== 'string' || !keywordMap || typeof keywordMap !== 'object' || Object.keys(keywordMap).length === 0) {
+		console.warn("[findBestKeyword] Invalid input provided or empty keywordMap. Returning default value.");
+		return defaultValue;
+	}
 
-  // --- Helper function to escape special regex characters ---
-  function escapeRegExp(string) {
-    // $& means the whole matched string
-    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
+	const weights = {};
+	let maxWeight = 0; // Variable to store the highest weight found
+	const lowerCaseText = text.toLowerCase(); // Ensure case-insensitive search
 
-  const weights = {};
-  let maxWeight = 0; // Variable to store the highest weight found
-  const lowerCaseText = text.toLowerCase(); // Ensure case-insensitive search
+	// --- Calculate Weights --- 
+	// Iterate over each key (potential workspace) in the keywordMap
+	for (const key in keywordMap) {
+		if (Object.hasOwnProperty.call(keywordMap, key)) {
+			weights[key] = 0; // Initialize weight for this key
+			const searchTerms = keywordMap[key]; // Get the array of search terms for this key
+			if (Array.isArray(searchTerms)) {
+				searchTerms.forEach(term => { // For each search term
+					if (typeof term === 'string' && term.length > 0) {
+						const lowerCaseTerm = term.toLowerCase();
+						try {
+							// Create a global, case-insensitive regex for the term
+							const regex = new RegExp(escapeRegExp(lowerCaseTerm), 'gi');
+							const matches = lowerCaseText.match(regex); // Find all occurrences
+							if (matches) {
+								weights[key] += matches.length; // Add number of occurrences to weight
+							}
+						} catch (e) {
+							console.error(`[findBestKeyword] Error creating RegExp for term: "${term}". Skipping. Error: ${e.message}`);
+						}
+					}
+				});
+			} else {
+				 console.warn(`[findBestKeyword] Value for key "${key}" in keywordMap is not an array. Skipping key.`);
+			}
+		}
+	}
 
-  // --- Calculate Weights --- (Same as before)
-  for (const key in keywordMap) {
-    if (Object.hasOwnProperty.call(keywordMap, key)) {
-      weights[key] = 0;
-      const searchTerms = keywordMap[key];
-      if (Array.isArray(searchTerms)) {
-        searchTerms.forEach(term => {
-          if (typeof term === 'string' && term.length > 0) {
-            const lowerCaseTerm = term.toLowerCase();
-            try {
-              const regex = new RegExp(escapeRegExp(lowerCaseTerm), 'gi');
-              const matches = lowerCaseText.match(regex);
-              if (matches) {
-                weights[key] += matches.length;
-              }
-            } catch (e) {
-              console.error(`Error creating RegExp for term: "${term}". Skipping term. Error: ${e}`);
-            }
-          }
-        });
-      } else {
-         console.warn(`Value for key "${key}" is not an array. Skipping key.`);
-      }
-    }
-  }
+	// --- Pass 1: Find the Maximum Weight ---
+	// Find the highest score (weight) achieved by any key
+	for (const key in weights) {
+		if (Object.hasOwnProperty.call(weights, key)) {
+			if (weights[key] > maxWeight) {
+				maxWeight = weights[key];
+			}
+		}
+	}
 
-  // --- Pass 1: Find the Maximum Weight ---
-  // Find the highest score achieved by any key
-  for (const key in weights) {
-    if (Object.hasOwnProperty.call(weights, key)) {
-      if (weights[key] > maxWeight) {
-        maxWeight = weights[key];
-      }
-    }
-  }
+	// --- Handle No Matches ---
+	// If the highest weight is 0, it means no keywords were found or matched in the text.
+	if (maxWeight === 0) {
+		console.log("[findBestKeyword] No keywords found or matched. Returning default value.");
+		return defaultValue;
+	}
 
-  // --- Handle No Matches ---
-  // If the highest weight is 0, no keywords were found. Return default.
-  if (maxWeight === 0) {
-    console.log("No keywords found or matched in the text. Returning default value.");
-    return defaultValue;
-  }
+	// --- Pass 2: Check for Ties at the Maximum Weight ---
+	let maxWeightCount = 0;       // Counter for keys that have the maximum weight
+	let keyWithMaxWeight = null;  // To store the key if it's the unique winner
 
-  // --- Pass 2: Check for Ties at the Maximum Weight ---
-  let maxWeightCount = 0;       // Counter for keys matching the max weight
-  let keyWithMaxWeight = null;  // To store the key if it's the unique winner
+	for (const key in weights) {
+		 if (Object.hasOwnProperty.call(weights, key)) {
+			 // Check if this key's weight equals the highest weight found
+			 if (weights[key] === maxWeight) {
+				 maxWeightCount++;
+				 keyWithMaxWeight = key; // Store the key; will be overwritten if multiple keys have max weight, but that's handled next
+			 }
+		 }
+	}
 
-  for (const key in weights) {
-     if (Object.hasOwnProperty.call(weights, key)) {
-         // Check if this key's weight equals the highest weight found
-         if (weights[key] === maxWeight) {
-             maxWeightCount++;
-             keyWithMaxWeight = key; // Store the key - will be overwritten if multiple keys have max weight
-         }
-     }
-  }
-
-  // --- Return Based on Tie Check ---
-  // If more than one key achieved the max weight, it's a tie.
-  if (maxWeightCount > 1) {
-    console.log(`Tie detected (${maxWeightCount} keys) for maximum weight ${maxWeight}. Returning default value.`);
-    return defaultValue; // Return default value in case of a tie
-  } else {
-    // Otherwise, maxWeightCount must be 1 (since we handled maxWeight=0 earlier),
-    // so we have a unique winner.
-    return keyWithMaxWeight; // Return the single key that had the max weight
-  }
+	// --- Return Based on Tie Check ---
+	// If more than one key achieved the max weight, it's considered a tie.
+	if (maxWeightCount > 1) {
+		console.log(`[findBestKeyword] Tie detected (${maxWeightCount} keys) for max weight ${maxWeight}. Returning default value.`);
+		return defaultValue; // Return default value in case of a tie
+	} else {
+		// Otherwise, maxWeightCount must be 1 (since we handled maxWeight=0 earlier),
+		// meaning there is a unique winner.
+		console.log(`[findBestKeyword] Unique winner: ${keyWithMaxWeight} with weight ${maxWeight}.`);
+		return keyWithMaxWeight; // Return the single key that had the max weight
+	}
 }
 
+// Helper function to escape special regex characters ---
+function escapeRegExp(string) {
+	// $& means the whole matched string
+	// Correcting the replacement string back to \\$& for proper escaping.
+	return string.replace(/[.*+?^${}()|[\]\\\\]/g, '\\$&');
+}
 
-console.log("[None Intent Provider] Initialized.");
+console.log("[None Intent Provider] Initialized with dynamic keyword map capability.");
