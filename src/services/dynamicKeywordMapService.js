@@ -39,85 +39,177 @@ export async function initializeKeywordMapService() {
     console.log("[KeywordMap Service] Cache flushing complete.");
 }
 
-// --- Helper Functions (adapted from user script) ---
+// --- Helper Functions (adapted from user script and new additions) ---
 
 function cleanDescription(description) {
     if (!description) return '';
     // Remove special characters, keep alphanumeric and spaces
     return description.toLowerCase()
-        .replace(/[^\w\s]/g, '')
-        .replace(/\s+/g, ' ')
+        .replace(/[^\\w\\s]/g, '')
+        .replace(/\\s+/g, ' ')
         .trim();
 }
 
-function generateKeywords(repoName, description, allRepoNamesSet = new Set()) {
-    const currentRepoNameLower = repoName.toLowerCase();
-    const initialKeywords = [currentRepoNameLower];
-    
-    // Split repo name by common separators
-    const nameParts = currentRepoNameLower.split(/[-_]/);
-    nameParts.forEach(part => {
-        if (part && !initialKeywords.includes(part)) {
-            initialKeywords.push(part);
-        }
-    });
-    
-    // Process description
-    if (description) {
-        const cleanedDesc = cleanDescription(description);
-        const descWords = cleanedDesc.split(' ');
-        
-        // Add relevant words from description
-        descWords.forEach(word => {
-            if (!initialKeywords.includes(word) && word.length > 3) { // Only add words longer than 3 chars
-                initialKeywords.push(word);
-            }
-        });
-        
-        // Generate compound phrases from description (2-word phrases)
-        if (descWords.length > 1) {
-            for (let i = 0; i < descWords.length - 1; i++) {
-                const phrase = `${descWords[i]} ${descWords[i+1]}`;
-                if (!initialKeywords.includes(phrase)) {
-                    initialKeywords.push(phrase);
-                }
-            }
-        }
-    }
-    
-    // Filter out keywords that are names of other existing repos
-    const filteredKeywords = initialKeywords.filter(keyword => {
-        // Keep the keyword if it's the current repo's own name OR if it's not found in the set of all other repo names.
-        return keyword === currentRepoNameLower || !allRepoNamesSet.has(keyword);
-    });
-    
-    // Remove duplicates while preserving order and limit to first 4
-    // Ensure the repo's own name is always the first keyword if still present after filtering, then take top N.
-    // However, the original slice(0,4) was simple. Let's stick to that simplicity for now after filtering.
-    // If currentRepoNameLower was filtered out (e.g. if it matched another repo name and wasn't caught by the OR condition,
-    // which is unlikely but for safety), we might lose it. The filter logic should prevent this.
-    let finalKeywords = [...new Set(filteredKeywords)];
-    
-    // Ensure the repo's own name is prioritized if it exists, then take up to 4 unique keywords.
-    // This is a bit more robust to ensure the primary repo name isn't accidentally removed by the slice(0,4)
-    // if other valid keywords push it out after deduplication from the filtered list.
-    const ownNameIndex = finalKeywords.indexOf(currentRepoNameLower);
-    if (ownNameIndex > 0) { // If currentRepoNameLower exists but is not at the start, move it to start.
-        finalKeywords.splice(ownNameIndex, 1); // Remove it from its current position
-        finalKeywords.unshift(currentRepoNameLower); // Add it to the beginning
-    } else if (ownNameIndex === -1 && !allRepoNamesSet.has(currentRepoNameLower)) {
-        // This case implies currentRepoNameLower was filtered out *and* it's not another repo's name.
-        // This shouldn't happen with the current filter `keyword === currentRepoNameLower || !allRepoNamesSet.has(keyword)`
-        // but as a safeguard, re-add it if it was the keyword being processed.
-        // However, the problem statement implies currentRepoNameLower should not be filtered if it's for THIS repo.
-        // The filter `keyword === currentRepoNameLower || !allRepoNamesSet.has(keyword)` correctly handles this:
-        // - If keyword is `currentRepoNameLower`, it's kept.
-        // - If keyword is NOT `currentRepoNameLower` AND it IS IN `allRepoNamesSet`, it's removed.
-        // This means currentRepoNameLower itself will not be removed by the filter unless it was NOT currentRepoNameLower,
-        // which is a contradiction for that specific keyword. So currentRepoNameLower is safe.
+/**
+ * Fetches the content of specified files from the root of a repository.
+ * Tries files in order and returns the content of the first one found.
+ * @param {string} token - GitHub token.
+ * @param {string} owner - Repository owner (organization or user).
+ * @param {string} repoName - Repository name.
+ * @param {string[]} filesToTry - Array of filenames to look for in the root.
+ * @returns {Promise<string|null>} Decoded file content as a string, or null if not found or error.
+ */
+async function getRepoRootFileContent(token, owner, repoName, filesToTry = ['README.md', 'readme.md', 'README.txt', 'readme.txt']) {
+    if (!token || !owner || !repoName) {
+        console.error("[KeywordMap Service/FileContent] Missing token, owner, or repoName.");
+        return null;
     }
 
-    return finalKeywords.slice(0, 4);
+    const headers = { Authorization: `token ${token}`, Accept: 'application/vnd.github.v3+json' };
+
+    try {
+        // First, list root contents to find the exact filename and its download_url or content API URL
+        const rootContentsUrl = `https://api.github.com/repos/${owner}/${repoName}/contents/`;
+        const rootResponse = await axios.get(rootContentsUrl, { headers, timeout: 10000 });
+
+        let targetFileMeta = null;
+        if (rootResponse.data && Array.isArray(rootResponse.data)) {
+            for (const fileName of filesToTry) {
+                targetFileMeta = rootResponse.data.find(file => file.name.toLowerCase() === fileName.toLowerCase() && file.type === 'file');
+                if (targetFileMeta) break;
+            }
+        }
+
+        if (!targetFileMeta || !targetFileMeta.url) { // .url is the API URL for the content
+            // console.log(`[KeywordMap Service/FileContent] None of the target files found in root of ${owner}/${repoName}`);\
+            return null;
+        }
+
+        // Fetch the specific file content using its API URL
+        const fileResponse = await axios.get(targetFileMeta.url, { headers, timeout: 15000 });
+
+        if (fileResponse.data && fileResponse.data.content) {
+            if (fileResponse.data.encoding === 'base64') {
+                return Buffer.from(fileResponse.data.content, 'base64').toString('utf-8');
+            } else {
+                // Should ideally not happen for common text files, but handle if content is plain text
+                return fileResponse.data.content;
+            }
+        } else {
+            console.warn(`[KeywordMap Service/FileContent] No content found for ${targetFileMeta.name} in ${owner}/${repoName}`);
+            return null;
+        }
+    } catch (error) {
+        // console.error(`[KeywordMap Service/FileContent] Error fetching file content for ${owner}/${repoName}:`, error.message);\
+        // Be less verbose for 404s which are expected if a README doesn't exist
+        if (error.response && error.response.status === 404) {
+            // console.log(`[KeywordMap Service/FileContent] File/Repo not found (404) for ${owner}/${repoName}`);\
+        } else if (error.response) { // Log other API errors more verbosely
+            console.error(`[KeywordMap Service/FileContent] API Error ${error.response.status} for ${owner}/${repoName}:`, error.response.data?.message || error.message);
+        } else {
+            console.error(`[KeywordMap Service/FileContent] Network/Request error for ${owner}/${repoName}:`, error.message);
+        }
+        return null;
+    }
+}
+
+/**
+ * Extracts two-word combinations (bigrams) from a given text.
+ * @param {string} text - The input text.
+ * @returns {string[]} An array of unique two-word phrases.
+ */
+function extractTwoWordCombinations(text) {
+    if (!text || typeof text !== 'string') return [];
+    
+    // Use the existing cleanDescription for consistent text cleaning
+    const cleanedText = cleanDescription(text);
+    const words = cleanedText.split(' ').filter(word => word.length > 0); // Filter out empty strings from multiple spaces
+
+    const twoWordPhrases = [];
+    if (words.length > 1) {
+        for (let i = 0; i < words.length - 1; i++) {
+            // Basic check for word substance (e.g., length > 2 to avoid short/common words dominating)
+            // This can be made more sophisticated with stop word lists if needed.
+            if (words[i].length > 2 && words[i+1].length > 2) {
+                twoWordPhrases.push(`${words[i]} ${words[i+1]}`);
+            }
+        }
+    }
+    return [...new Set(twoWordPhrases)]; // Deduplicate and return
+}
+
+/**
+ * Generates keywords for a given repository based on its name and root file content.
+ * @param {string} token - GitHub token.
+ * @param {string} owner - Repository owner.
+ * @param {string} repoName - Repository name.
+ * @param {Set<string>} allRepoNamesSet - A Set of all known repository names in the org (lowercase).
+ * @returns {Promise<string[]>} A promise that resolves to an array of up to 5 keywords.
+ */
+async function generateKeywords(token, owner, repoName, allRepoNamesSet = new Set()) {
+    const currentRepoNameLower = repoName.toLowerCase();
+    let keywords = [];
+
+    // 1. Add the full repository name
+    if (currentRepoNameLower) { // Ensure repoName is not empty
+        keywords.push(currentRepoNameLower);
+    }
+
+    // 2. Add repository name sans "gravityforms" (if applicable)
+    if (currentRepoNameLower && currentRepoNameLower.startsWith('gravityforms')) {
+        const simplifiedName = currentRepoNameLower.replace(/^gravityforms/, '');
+        if (simplifiedName && simplifiedName !== currentRepoNameLower && !keywords.includes(simplifiedName)) {
+            keywords.push(simplifiedName);
+        }
+    }
+    
+    // 3. Keywords from root files (e.g., README)
+    const fileContent = await getRepoRootFileContent(token, owner, repoName);
+    if (fileContent) {
+        const twoWordPhrases = extractTwoWordCombinations(fileContent);
+        twoWordPhrases.forEach(phrase => {
+            if (!keywords.includes(phrase)) { // Avoid duplicates from this step
+                keywords.push(phrase);
+            }
+        });
+    }
+
+    // Initial deduplication before filtering against other repo names
+    keywords = [...new Set(keywords)];
+
+    // Filter out keywords that are names of OTHER existing repos.
+    // The current repo's own name (or its simplified version) should be preserved if they were added.
+    const filteredKeywords = keywords.filter(kw => {
+        if (kw === currentRepoNameLower) return true; // Always keep the repo's own full name
+        if (currentRepoNameLower.startsWith('gravityforms') && kw === currentRepoNameLower.replace(/^gravityforms/, '')) {
+            return true; // Always keep the repo's own simplified name if it was generated
+        }
+        return !allRepoNamesSet.has(kw); // Remove if it's another repo's name
+    });
+    
+    // Deduplicate again after filtering (in case filtering changed things, though less likely here)
+    let finalKeywords = [...new Set(filteredKeywords)];
+
+    // Prioritize own name / simplified name to be at the top for slicing
+    const simplifiedNameIfApplicable = (currentRepoNameLower && currentRepoNameLower.startsWith('gravityforms')) ? 
+                                       currentRepoNameLower.replace(/^gravityforms/, '') : null;
+
+    finalKeywords.sort((a, b) => {
+        let scoreA = 0;
+        let scoreB = 0;
+
+        if (a === currentRepoNameLower) scoreA = 100;
+        if (b === currentRepoNameLower) scoreB = 100;
+        if (simplifiedNameIfApplicable) {
+            if (a === simplifiedNameIfApplicable) scoreA = Math.max(scoreA, 90);
+            if (b === simplifiedNameIfApplicable) scoreB = Math.max(scoreB, 90);
+        }
+        // Add more scoring based on length or other factors if needed, e.g., prefer longer phrases from README
+        if (scoreA !== scoreB) return scoreB - scoreA; // Higher score comes first
+        return 0; // Keep original relative order for others of same score (effectively initial order)
+    });
+
+    return finalKeywords.slice(0, 5); // Return up to 5 keywords
 }
 
 async function fetchAndGenerateMapFromGitHub(token, org) {
@@ -158,18 +250,27 @@ async function fetchAndGenerateMapFromGitHub(token, org) {
         // Create a Set of all repository names for efficient lookup
         const allRepoNamesSet = new Set(allFetchedRepos.map(repo => repo.name.toLowerCase()));
 
-        const workspaceKeywordMap = {};
-        allFetchedRepos.forEach(repo => {
-            const repoNameKey = repo.name; 
-            const description = repo.description || '';
-            if (repoNameKey) {
-                // Pass allRepoNamesSet to generateKeywords
-                workspaceKeywordMap[repoNameKey] = generateKeywords(repoNameKey, description, allRepoNamesSet);
-            }
-        });
+        const keywordPromises = allFetchedRepos.map(repo => {\
+            const repoNameKey = repo.name;\
+            const owner = GITHUB_ORG_FOR_KEYWORDS; // Assuming GITHUB_ORG_FOR_KEYWORDS is the owner\
+            if (repoNameKey) {\
+                return generateKeywords(githubToken, owner, repoNameKey, allRepoNamesSet)\
+                    .then(keywords => ({ repoName: repoNameKey, keywords }));\
+            }\
+            return Promise.resolve(null); // Resolve null for repos without a name to keep array structure for Promise.all\
+        });\
+
+        const results = await Promise.all(keywordPromises);\
         
-        console.log(`[KeywordMap Service] Generated keyword map with ${Object.keys(workspaceKeywordMap).length} entries.`);
-        return workspaceKeywordMap;
+        const workspaceKeywordMap = {};\
+        results.forEach(result => {\
+            if (result && result.repoName && result.keywords) {\
+                workspaceKeywordMap[result.repoName] = result.keywords;\
+            }\
+        });\
+                \
+        console.log(`[KeywordMap Service] Generated keyword map with ${Object.keys(workspaceKeywordMap).length} entries.`);\
+        return workspaceKeywordMap;\
 
     } catch (error) {
         console.error(`[KeywordMap Service] Error fetching repositories for org ${org}:`, error.message);

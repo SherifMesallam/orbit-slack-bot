@@ -6,15 +6,19 @@ import { fallbackWorkspace } from "../../config.js";
 // Import the new service function
 import { getDynamicWorkspaceKeywordMap } from '../../services/index.js'; // Adjusted path
 
-// REMOVE the old hardcoded workspaceKeywordMap
-// const workspaceKeywordMap = {
-//   "gravityformssquare": ["gravityformssquare", "square", "square payments", "square add-on"],
-//   "gravityformsstripe": ["gravityformsstripe", "stripe", "stripe payments", "stripe add-on"],
-//   "gravityformsppcp": ["gravityformsppcp", "ppcp", "gravityforms paypal", "paypal", "paypal payments"],
-//   "gravityforms": ["gravityforms", "core", "the main add-on", "gravityforms core"],
-//   "gravityflow": ["gravityflow", "flow", "flow add-on"],
-//   "gravitypackages": ["gravitypackages", "packages", " packages add-on"],
-// };
+// Uncomment and use the static keyword map
+const staticWorkspaceKeywordMap = {
+	"gravityformssquare": ["gravityformssquare", "square", "square payments", "square add-on"],
+	"gravityformsstripe": ["gravityformsstripe", "stripe", "stripe payments", "stripe add-on"],
+	"gravityformsppcp": ["gravityformsppcp", "ppcp", "gravityforms paypal", "paypal", "paypal payments"],
+	"gravityforms": ["gravityforms", "core", "the main add-on", "gravityforms core"],
+	"gravityflow": ["gravityflow", "flow", "flow add-on"],
+	"gravitypackages": ["gravitypackages", "packages", " packages add-on"],
+  "gravityforms2checkout": ["2checkout", "2checkout add-on"],
+  "gravityformssaleforce": ["saleforce", "saleforce add-on"],
+  "gravityformssignature": ["signature", "signature add-on"],
+  "gravityformspaypal": ["paypal standard", "legacy paypal addon"]
+};
 
 /**
  * Default "provider" that always returns null intent and confidence 0.
@@ -38,24 +42,31 @@ export async function detectIntent(query, availableIntents = [], availableWorksp
 		console.log(`[None Intent Provider] Workspace from #mention: ${suggestedWsFromHash}`);
 		finalSuggestedWorkspace = suggestedWsFromHash;
 	} else {
-		console.log("[None Intent Provider] No #mention for workspace. Attempting keyword match.");
-		const dynamicKeywordMap = await getDynamicWorkspaceKeywordMap();
+		console.log("[None Intent Provider] No #mention for workspace. Attempting static keyword map first.");
+		// Try static map first
+		const wsFromStaticMap = findBestKeyword(query, staticWorkspaceKeywordMap, null); // Pass null as default to see if it finds anything specific
 
-		if (dynamicKeywordMap && Object.keys(dynamicKeywordMap).length > 0) {
-			const workspaceFromKeywords = findBestKeyword(query, dynamicKeywordMap, fallbackWorkspace);
-			if (workspaceFromKeywords && workspaceFromKeywords !== fallbackWorkspace) {
-				console.log(`[None Intent Provider] Workspace from dynamic keywords: ${workspaceFromKeywords}`);
-				finalSuggestedWorkspace = workspaceFromKeywords;
-			} else if (workspaceFromKeywords === fallbackWorkspace) {
-				 console.log(`[None Intent Provider] Keyword search resulted in fallback: ${fallbackWorkspace}`);
-				 finalSuggestedWorkspace = fallbackWorkspace; // Explicitly use fallback if keyword search defaulted
-			} else {
-				console.log("[None Intent Provider] No specific workspace from keywords, will use fallback if defined.");
-				finalSuggestedWorkspace = fallbackWorkspace; // Default to fallback if keywords yield nothing specific
-			}
+		if (wsFromStaticMap) { // If static map yields any result (even if it might be a fallback defined within it, though current one doesn't have that)
+			console.log(`[None Intent Provider] Workspace from static map: ${wsFromStaticMap}`);
+			finalSuggestedWorkspace = wsFromStaticMap;
 		} else {
-			console.warn("[None Intent Provider] Dynamic keyword map is empty or unavailable. Using fallback workspace.");
-			finalSuggestedWorkspace = fallbackWorkspace;
+			console.log("[None Intent Provider] No specific match from static map. Attempting dynamic keyword map.");
+			const dynamicKeywordMap = await getDynamicWorkspaceKeywordMap();
+
+			if (dynamicKeywordMap && Object.keys(dynamicKeywordMap).length > 0) {
+				const workspaceFromKeywords = findBestKeyword(query, dynamicKeywordMap, fallbackWorkspace); // Dynamic map uses global fallback
+				if (workspaceFromKeywords) { // workspaceFromKeywords could be the fallbackWorkspace itself
+					console.log(`[None Intent Provider] Workspace from dynamic keywords: ${workspaceFromKeywords}`);
+					finalSuggestedWorkspace = workspaceFromKeywords;
+				} else {
+					// This case should be rare if fallbackWorkspace is always defined and findBestKeyword returns it
+					console.log("[None Intent Provider] Dynamic map processing or fallback failed. Defaulting to global fallback.");
+					finalSuggestedWorkspace = fallbackWorkspace;
+				}
+			} else {
+				console.warn("[None Intent Provider] Dynamic keyword map is empty or unavailable. Using global fallback workspace.");
+				finalSuggestedWorkspace = fallbackWorkspace;
+			}
 		}
 	}
 
