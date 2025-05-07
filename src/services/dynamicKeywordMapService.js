@@ -140,7 +140,7 @@ async function fetchAndGenerateMapFromGitHub(token, org) {
         while (true) {
             const response = await axios.get(`https://api.github.com/orgs/${org}/repos`, {
                 headers,
-                params: { type: 'public', per_page: perPage, page } // Fetching only public repos, adjust if needed
+                params: { type: 'all', per_page: perPage, page }
             });
             
             if (response.data && response.data.length > 0) {
