@@ -5,20 +5,32 @@ import process from 'process';
 import app from './app.js'; // Import the configured Express app
 import { port, validateConfig } from './config.js';
 import { shutdownServices } from './services/shutdown.js';
-// Import the new initializer from the services index
-import { initializeKeywordMapService } from './services/index.js';
+// Import the new initializer and the getter from the services index
+import { initializeKeywordMapService, getDynamicWorkspaceKeywordMap } from './services/index.js';
 
 // 1. Validate Configuration
 // This will exit if critical variables are missing.
 validateConfig();
 
-// Call the keyword map initializer after config validation and Redis (implicit) init
-// This needs to be async, so we'll wrap this part or make an async IIFE
+// Call the keyword map initializer and then trigger a background cache warming
 (async () => {
     try {
-        await initializeKeywordMapService();
+        await initializeKeywordMapService(); // Flush existing cache
+        console.log("[Server] Initial cache flushed. Triggering background keyword map fetch...");
+        // Intentionally not awaiting this promise here to let it run in the background
+        getDynamicWorkspaceKeywordMap(true) // Pass true to force a fresh fetch, not from a potentially just-cleared Redis by another instance
+            .then(map => {
+                if (map && Object.keys(map).length > 0) {
+                    console.log("[Server] Background keyword map pre-warming completed successfully.");
+                } else {
+                    console.warn("[Server] Background keyword map pre-warming completed, but the map was empty or null.");
+                }
+            })
+            .catch(error => {
+                console.error("[Server] Error during background keyword map pre-warming:", error);
+            });
     } catch (initError) {
-        console.error("[Server] Error during keyword map service initialization:", initError);
+        console.error("[Server] Error during synchronous keyword map service initialization (flushing):", initError);
         // Decide if this is a critical error that should prevent startup
         // process.exit(1); 
     }
