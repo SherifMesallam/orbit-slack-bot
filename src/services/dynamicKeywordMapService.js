@@ -250,27 +250,27 @@ async function fetchAndGenerateMapFromGitHub(token, org) {
         // Create a Set of all repository names for efficient lookup
         const allRepoNamesSet = new Set(allFetchedRepos.map(repo => repo.name.toLowerCase()));
 
-        const keywordPromises = allFetchedRepos.map(repo => {\
-            const repoNameKey = repo.name;\
+        const keywordPromises = allFetchedRepos.map(repo => {
+            const repoNameKey = repo.name;
             const owner = GITHUB_ORG_FOR_KEYWORDS; // Assuming GITHUB_ORG_FOR_KEYWORDS is the owner\
-            if (repoNameKey) {\
-                return generateKeywords(githubToken, owner, repoNameKey, allRepoNamesSet)\
-                    .then(keywords => ({ repoName: repoNameKey, keywords }));\
-            }\
+            if (repoNameKey) {
+                return generateKeywords(githubToken, owner, repoNameKey, allRepoNamesSet)
+                    .then(keywords => ({ repoName: repoNameKey, keywords }));
+            }
             return Promise.resolve(null); // Resolve null for repos without a name to keep array structure for Promise.all\
-        });\
+        });
 
-        const results = await Promise.all(keywordPromises);\
+        const results = await Promise.all(keywordPromises);
         
-        const workspaceKeywordMap = {};\
-        results.forEach(result => {\
-            if (result && result.repoName && result.keywords) {\
-                workspaceKeywordMap[result.repoName] = result.keywords;\
-            }\
-        });\
-                \
-        console.log(`[KeywordMap Service] Generated keyword map with ${Object.keys(workspaceKeywordMap).length} entries.`);\
-        return workspaceKeywordMap;\
+        const workspaceKeywordMap = {};
+        results.forEach(result => {
+            if (result && result.repoName && result.keywords) {
+                workspaceKeywordMap[result.repoName] = result.keywords;
+            }
+        });
+                
+        console.log(`[KeywordMap Service] Generated keyword map with ${Object.keys(workspaceKeywordMap).length} entries.`);
+        return workspaceKeywordMap;
 
     } catch (error) {
         console.error(`[KeywordMap Service] Error fetching repositories for org ${org}:`, error.message);
