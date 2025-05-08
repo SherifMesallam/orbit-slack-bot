@@ -14,6 +14,7 @@ import {
 	// Import new config flags for intent routing
 	intentRoutingEnabled,
 	intentConfidenceThreshold, fallbackWorkspace,
+	BOT_ON_BREAK
 } from '../config.js';
 
 // --- Service Imports ---
@@ -110,6 +111,20 @@ async function updateOrDeleteThinkingMessage(thinkingMessageTsOrPromise, slack, 
 export async function handleSlackMessageEventInternal(event, slack, octokit) {
     const handlerStartTime = Date.now();
     const { user: userId, text: originalText = '', channel: channelId, ts: originalTs, thread_ts: threadTs } = event;
+
+    if (BOT_ON_BREAK) {
+        console.log(`[Msg Handler] Bot is on break. Replying and skipping processing for event ${originalTs} in channel ${channelId}.`);
+        try {
+            await slack.chat.postMessage({
+                channel: channelId,
+                thread_ts: threadTs || originalTs, // Reply in thread if possible
+                text: "I'm off duty right now, probably binge-watching error logs. Try me again in a bit?"
+            });
+        } catch (e) {
+            console.error("[Msg Handler] Error posting 'on break' message:", e);
+        }
+        return; // Stop processing immediately
+    }
 
     // --- 1. Initial Processing & Context ---
     let rawQuery = originalText.trim();
