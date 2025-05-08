@@ -141,7 +141,7 @@ export const MIN_SUBSTANTIVE_RESPONSE_LENGTH = process.env.MIN_SUBSTANTIVE_RESPO
 export const FEEDBACK_SYSTEM_ENABLED = process.env.FEEDBACK_SYSTEM_ENABLED || false;
 
 /** @type {boolean} If true, bot ignores commands/queries and replies with a standard "on break" message. */
-export const BOT_ON_BREAK = process.env.BOT_ON_BREAK === 'true'; // Default: false
+export const BOT_ON_BREAK = process.env.BOT_ON_BREAK || true; // Default: false
 
 /**
  * =============================================================================
