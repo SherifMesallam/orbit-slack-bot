@@ -1,4 +1,3 @@
-
 // src/handlers/commandHandler.js
 // Contains handlers for specific commands (`gh:`, `/gh-*`) identified by routers.
 
@@ -457,6 +456,54 @@ export async function handleGithubApiCommand(apiQuery, replyTarget, channel, sla
         console.error('[CH - API] Error:', error);
         await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: `❌ Error processing \`gh: api\`: ${error.message}` });
         return true;
+    }
+}
+
+/**
+ * Handles greeting intents detected by intent detection.
+ * Responds with a friendly welcome message.
+ * @param {object} intentContext - The context object for this intent.
+ * @returns {Promise<boolean>} - True if handled successfully.
+ */
+export async function handleGreetingIntent(intentContext) {
+    const { 
+        slack, 
+        channelId, 
+        replyTarget, 
+        thinkingMessageTs,
+        intentResult 
+    } = intentContext;
+    
+    console.log(`[CommandHandler] Handling greeting intent`);
+    
+    try {
+        // Prepare a friendly greeting response
+        const greeting = [
+            `Hello there! :wave:`,
+            `I'm Orbit, your AI assistant for Gravity Forms development.`,
+            `I can help with code questions, best practices, documentation, and GitHub tasks.`,
+            `Feel free to ask me anything about Gravity Forms!`
+        ].join('\n');
+        
+        // First, update the thinking message
+        await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { 
+            text: "Responding to greeting..." 
+        });
+        
+        // Post the greeting message
+        await slack.chat.postMessage({
+            channel: channelId,
+            thread_ts: replyTarget,
+            text: greeting
+        });
+        
+        // Delete the thinking message
+        await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, null);
+        
+        return true;
+    } catch (error) {
+        console.error(`[CommandHandler] Error handling greeting intent:`, error);
+        return false;
     }
 }
 

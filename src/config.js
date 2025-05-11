@@ -66,8 +66,11 @@ export const intentConfidenceThreshold = parseFloat(process.env.INTENT_CONFIDENC
 /** @type {string | null} API Key specifically for the Gemini intent provider. Required if intentProvider is 'gemini'. */
 export const geminiApiKey = process.env.GEMINI_API_KEY || ""; // Default: null
 
+/** @type {string} The Gemini model name to use for intent detection. */
+export const geminiModelName = process.env.GEMINI_MODEL_NAME || "gemini-2.5-pro-preview-03-25"; // Default: gemini-2.5-pro-preview-03-25
+
 /** @type {string[]} Optional: List of known intent names. Might be used by providers or routing logic. */
-export const possibleIntents = JSON.parse(process.env.POSSIBLE_INTENTS || '["technical_question", "best_practices_question", "historical_knowledge", "bot_abilities", "docs"]'); // Default: []
+export const possibleIntents = JSON.parse(process.env.POSSIBLE_INTENTS || '["technical_question", "best_practices_question", "historical_knowledge", "bot_abilities", "docs", "greeting"]'); // Default: []
 
 /** @type {string[]} Optional: List of message prefixes that could trigger intent detection explicitly (if needed). */
 export const intentPrefixes = JSON.parse(process.env.INTENT_PREFIXES || '[]'); // Default: []
@@ -206,6 +209,9 @@ export function validateConfig() {
     // Intent Detection Warnings
     if (intentProvider === 'gemini' && !geminiApiKey) {
         warnings.push("INTENT_PROVIDER is set to 'gemini', but GEMINI_API_KEY is missing. Intent detection will fail to use Gemini.");
+    }
+    if (intentProvider === 'gemini' && (!geminiModelName || geminiModelName.trim() === '')) {
+        warnings.push("INTENT_PROVIDER is set to 'gemini', but GEMINI_MODEL_NAME is empty. Using default model.");
     }
     if (intentRoutingEnabled && intentProvider === 'none') {
         warnings.push("INTENT_ROUTING_ENABLED is true, but INTENT_PROVIDER is 'none'. Intent detection step will run but won't detect anything.");

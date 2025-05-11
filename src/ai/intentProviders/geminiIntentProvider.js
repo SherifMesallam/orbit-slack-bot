@@ -9,11 +9,11 @@ import {
     HarmBlockThreshold
 } from "@google/generative-ai";
 // Ensure geminiApiKey is configured and exported from your config file
-import { geminiApiKey } from '../../config.js';
+import { geminiApiKey, geminiModelName } from '../../config.js';
 
 // --- Constants ---
-// Adjust model name as needed. Consider newer models like gemini-1.5-flash-latest if available/suitable.
-const MODEL_NAME = "gemini-2.5-pro-preview-03-25";
+// Use the configured model name
+const MODEL_NAME = geminiModelName;
 // Define safety settings to block harmful content. Adjust thresholds as necessary.
 const safetySettings = [
   { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
@@ -82,6 +82,11 @@ export async function detectIntent(query, availableIntents = [], availableWorksp
    Examples: "How do I use conditional logic in forms?", "What does the gravity_form() function do?",
    "Is there documentation for the REST API?", "How do customers use the survey add-on?"
 
+6. greeting
+   Simple greetings, introductions, or conversation starters.
+   Examples: "Hello", "Hi there", "Hey Orbit", "Good morning", "What's up?", "How are you?", 
+   "Nice to meet you", "Can you help me?"
+
 ---------- CLASSIFICATION RULES ----------
 
 - Choose EXACTLY ONE intent that best matches the query.
@@ -89,6 +94,7 @@ export async function detectIntent(query, availableIntents = [], availableWorksp
 - If uncertain, classify based on what the user is PRIMARILY asking for.
 - If the query doesn't fit any category well, respond with intent: null.
 - Ignore formal greeting parts of queries when determining intent.
+- For simple greetings with no other content, use the "greeting" intent.
 
 Your classification should be precise and consistent.`
         : 'Determine the most appropriate intent that describes the user query.';
@@ -112,6 +118,7 @@ Respond ONLY with a single, valid JSON object containing exactly three keys: "in
 Example valid responses:
 {"intent": "technical_question", "confidence": 0.85, "suggestedWorkspace": all}
 {"intent": "best_practices_question", "confidence": 0.7, "suggestedWorkspace": gravityformsstipe}
+{"intent": "greeting", "confidence": 0.5, "suggestedWorkspace": gravityforms}
 {"intent": null, "confidence": 0.1, "suggestedWorkspace": gravityforms}
 
 User Query: "${query}"

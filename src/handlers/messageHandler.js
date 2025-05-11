@@ -47,6 +47,7 @@ import {
     // --- Placeholder Intent Handlers (to be created) ---
     // handleGithubLookupIntent,
     // handleFaqIntent,
+    handleGreetingIntent, // Add the greeting intent handler
 } from './commandHandler.js'; // Or import from './intentHandler.js' later
 
 import strings from '../services/stringService.js';
@@ -370,10 +371,29 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                     query: cleanedQuery,
                     userId, channelId, replyTarget, originalTs, threadTs,
                     slack, octokit, thinkingMessageTs,
-                    intentResult // Pass the full result
+                    intentResult: intentDetectionResult // Fix the variable name here
                 };
 
                 switch (intent) {
+                    case 'greeting': // Add case for greeting intent
+                        console.log(`[Msg Handler] Routing to 'greeting' handler.`);
+                        intentHandled = await handleGreetingIntent(intentContext);
+                        
+                        // Update debug info
+                        intentDebugInfo.intentImplemented = true;
+                        intentDebugInfo.finalWorkspace = fallbackWorkspace;
+                        
+                        // Post debug message
+                        try {
+                            const debugMessagePayload = createIntentDebugMessage(intentDebugInfo);
+                            debugMessagePayload.text = "Intent Detection Debug Info";
+                            debugMessagePayload.thread_ts = replyTarget;
+                            debugMessagePayload.channel = channelId;
+                            await slack.chat.postMessage(debugMessagePayload);
+                        } catch (debugError) {
+                            console.error("[Msg Handler] Error posting intent debug message:", debugError);
+                        }
+                        break;
                     case 'github_issue_lookup': // Example Intent
                         console.log(`[Msg Handler] Routing to 'github_issue_lookup' handler.`);
                         // Placeholder: You need to create and import handleGithubLookupIntent
