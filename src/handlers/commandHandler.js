@@ -1498,18 +1498,22 @@ export async function handleIntentDetectionDebugCommand(query, channelId, thread
 /**
  * Handles the github_issue_summary intent.
  * Provides a summary of a GitHub issue.
- * @param {object} slack - Slack WebClient instance
- * @param {string} userId - Message sender ID 
- * @param {string} channelId - Message channel ID
- * @param {string} messageText - Message text (without mentions)
- * @param {string | null} threadTs - Thread TS if in thread
- * @param {string | null} replyTarget - Thread TS or channel ID for reply
- * @param {string | null} thinkingMessageTs - Thinking message TS if it exists 
- * @param {object} intentData - Intent detection result data
+ * @param {object} intentContext - The context object for this intent.
  * @returns {Promise<boolean>} True if handled.
  */
-export async function handleGithubIssueSummaryIntent(slack, userId, channelId, messageText, threadTs, replyTarget, thinkingMessageTs, intentData) {
-    console.log(`[CommandHandler] Handling github_issue_summary intent, confidence: ${intentData.confidence}`);
+export async function handleGithubIssueSummaryIntent(intentContext) {
+    const { 
+        query: messageText,
+        slack, 
+        userId,
+        channelId, 
+        replyTarget, 
+        thinkingMessageTs,
+        octokit,
+        intentResult
+    } = intentContext;
+    
+    console.log(`[CommandHandler] Handling github_issue_summary intent, confidence: ${intentResult.confidence}`);
     
     // Parse issue parameters
     let issueMatch, owner, repo, issueNumber;
@@ -1560,7 +1564,7 @@ export async function handleGithubIssueSummaryIntent(slack, userId, channelId, m
     }
 
     // Determine workspace to use
-    let workspaceSlug = intentData.suggestedWorkspace;
+    let workspaceSlug = intentResult.suggestedWorkspace;
     
     // If we don't have a workspace or it's the default, try to extract from repo name
     if (!workspaceSlug || workspaceSlug === 'github' || workspaceSlug === 'all') {
@@ -1574,7 +1578,7 @@ export async function handleGithubIssueSummaryIntent(slack, userId, channelId, m
         }
     }
     
-    console.log(`[CommandHandler] Extracted Issue: ${owner}/${repo}#${issueNumber}, Workspace: ${workspaceSlug}, Prompt: ${intentData.userPrompt || 'None'}`);
+    console.log(`[CommandHandler] Extracted Issue: ${owner}/${repo}#${issueNumber}, Workspace: ${workspaceSlug}, Prompt: ${intentResult.userPrompt || 'None'}`);
     
     // Update thinking message with workspace info
     await updateOrDeleteThinkingMessage(localThinkingMessageTs, slack, channelId, { 
@@ -1585,9 +1589,6 @@ export async function handleGithubIssueSummaryIntent(slack, userId, channelId, m
     console.log(`[CommandHandler] Debug - About to call handleIssueSummaryCommand`);
     
     try {
-        // Use the octokit instance from the context
-        const octokit = intentData.octokit;
-        
         if (!octokit) {
             throw new Error("GitHub client not available");
         }
@@ -1597,14 +1598,14 @@ export async function handleGithubIssueSummaryIntent(slack, userId, channelId, m
             owner,
             repo,
             issueNumber,
-            intentData.userPrompt,
+            intentResult.userPrompt,
             replyTarget,
             channelId,
             slack,
             octokit,
             Promise.resolve(localThinkingMessageTs),
             workspaceSlug,
-            intentData.anythingLLMThreadSlug
+            intentResult.anythingLLMThreadSlug
         );
     } catch (err) {
         console.error("[CommandHandler] Error calling issue summary handler:", err);

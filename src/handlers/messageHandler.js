@@ -560,7 +560,7 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                     case 'github_issue_summary':
                         console.log(`[Msg Handler] Routing to 'github_issue_summary' handler.`);
                         logIntentContext(intentContext, 'github_issue_summary');
-                        intentHandled = await handleGithubIssueSummaryIntent(slack, userId, channelId, cleanedQuery, threadTs, replyTarget, thinkingMessageTs, intentDetectionResult);
+                        intentHandled = await handleGithubIssueSummaryIntent(intentContext);
                         console.log(`[Msg Handler] 'github_issue_summary' handler completed with result: ${intentHandled}`);
                         
                         // Update debug info
