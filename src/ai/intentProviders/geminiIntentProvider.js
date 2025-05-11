@@ -101,6 +101,9 @@ EXAMPLES:
 - "Analyze the bug reported in issue #678" → github_issue_analysis
 - "What's the status of issue 901?" → github_issue_analysis
 - "Is issue #432 still relevant?" → github_issue_analysis
+- "Analyze issue gravityforms/gravityforms#456" → github_issue_analysis
+- "Explain GitHub issue gravityforms/gravityformsstripe#789" → github_issue_analysis
+- "What's happening with issue gravityforms/gravityformspaypal#123?" → github_issue_analysis
 
 # docs intent examples:
 - "How do I use the Gravity Forms conditional logic?" → docs
@@ -236,7 +239,7 @@ ${availableIntents.map((intent, index) => {
             description = "Requests to review or summarize a pull request.";
             break; 
         case "github_issue_analysis":
-            description = "Requests to analyze, summarize, or explain a GitHub issue.";
+            description = "Requests to analyze, summarize, or explain a GitHub issue. For workspace suggestions, prefer repo names or specific components extracted from the repo name (e.g., for 'gravityformsstripe' suggest 'stripe'). Never use issue numbers as workspaces.";
             break;
         case "github_api_query":
             description = "Natural language requests to query the GitHub API.";
@@ -270,7 +273,13 @@ Your classification must be precise and consistent, using ONLY the exact intent 
     const workspaceList = availableWorkspaces.length > 0
         ? `Consider which workspaces from this list would be most relevant to the query: [${availableWorkspaces.join(', ')}].
         
-Analyze the query's topic and rank the most relevant workspaces in order of relevance. Include only workspaces that have meaningful relevance to the query. IMPORTANT: You MUST include at least one workspace in your rankedWorkspaces array.`
+Analyze the query's topic and rank the most relevant workspaces in order of relevance. Include only workspaces that have meaningful relevance to the query. IMPORTANT: You MUST include at least one workspace in your rankedWorkspaces array.
+
+For GitHub issue analysis:
+- If the issue is in format "org/repo#number" (e.g., "gravityforms/gravityforms#456"), extract the repo name (gravityforms) as the primary workspace
+- If the repo has a prefix like "gravityforms" in "gravityformsstripe#123", use the suffix (stripe) as the workspace
+- If only an issue number is provided without repo context (e.g., "Analyze issue #456"), suggest "github" or another general workspace
+- NEVER use the issue number itself as a workspace name`
         : 'Use all for the suggested workspace.';
 
     // The core prompt instructing the model on its task and desired output format.
