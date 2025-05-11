@@ -531,8 +531,11 @@ export async function handleGithubReleaseInfoIntent(intentContext) {
         // Look for patterns like "latest for gravityforms" or "latest release of paypal" or just "gravityforms release"
         const repoPatterns = [
             /latest(?:\s+for|\s+release\s+of|\s+version\s+of|\s+of)?\s+([a-zA-Z0-9._-]+)/i,
-            /([a-zA-Z0-9._-]+)\s+(?:release|version)/i,
-            /what's\s+new\s+in\s+([a-zA-Z0-9._-]+)/i
+            /([a-zA-Z0-9._-]+)\s+(?:release|version|update)/i,
+            /what's\s+new\s+in\s+([a-zA-Z0-9._-]+)/i,
+            /when\s+was\s+([a-zA-Z0-9._-]+)\s+(?:last\s+updated|released)/i,
+            /(?:new|recent)\s+(?:version|release)\s+(?:of\s+)?([a-zA-Z0-9._-]+)/i,
+            /version\s+(?:of\s+)?([a-zA-Z0-9._-]+)/i
         ];
         
         let repoIdentifier = null;
@@ -544,7 +547,42 @@ export async function handleGithubReleaseInfoIntent(intentContext) {
             }
         }
         
-        // If no repo found, use a fallback approach - just extract any word that might be a repo name
+        // If no repo found with patterns, look for specific keywords
+        if (!repoIdentifier) {
+            // Check for "core" references or general "latest" queries
+            if (query.toLowerCase().includes("core") || 
+                query.toLowerCase().includes("gravity forms") || 
+                query.toLowerCase().includes("gravityforms")) {
+                repoIdentifier = "gravityforms";
+            } 
+            else if (query.toLowerCase().includes("latest version") || 
+                     query.toLowerCase().includes("latest release") || 
+                     query.toLowerCase().includes("most recent update")) {
+                // Default to gravityforms for general "latest" queries
+                repoIdentifier = "gravityforms";
+            }
+            else {
+                // Check for common add-on names
+                const addonPatterns = [
+                    { pattern: /\b(?:stripe|credit\s*card)\b/i, repo: "stripe" },
+                    { pattern: /\b(?:paypal|pp|ppcp)\b/i, repo: "ppcp" },
+                    { pattern: /\b(?:user\s*reg|user\s*registration|ur)\b/i, repo: "ur" },
+                    { pattern: /\b(?:flow|gravity\s*flow)\b/i, repo: "flow" },
+                    { pattern: /\b(?:auth\.?net|authorize\.?net)\b/i, repo: "authnet" },
+                    { pattern: /\b(?:mailchimp|mail\s*chimp)\b/i, repo: "mailchimp" },
+                    { pattern: /\b(?:zapier|zap)\b/i, repo: "zapier" }
+                ];
+                
+                for (const {pattern, repo} of addonPatterns) {
+                    if (pattern.test(query)) {
+                        repoIdentifier = repo;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // If still no repo found, try fallback to extract any word that might be a repo name
         if (!repoIdentifier) {
             const words = query.split(/\s+/);
             // Check if any word matches common add-on names or keywords
@@ -859,6 +897,126 @@ export async function handleGithubApiQueryIntent(intentContext) {
         console.error(`[CommandHandler] Error handling github_api_query intent:`, error);
         await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { 
             text: `❌ Error processing API query: ${error.message}` 
+        });
+        return true;
+    }
+}
+
+/**
+ * Provides a debug command to test intent detection directly from Slack.
+ * @param {string} query - The query to test for intent detection
+ * @param {string} channelId - The channel ID where the command was invoked
+ * @param {string} threadTs - The thread timestamp for replying to the message
+ * @param {object} slack - The Slack client instance
+ * @returns {Promise<boolean>} - True if the command was handled
+ */
+export async function handleIntentDetectionDebugCommand(query, channelId, threadTs, slack) {
+    if (!query || query.trim() === '') {
+        await slack.chat.postMessage({
+            channel: channelId,
+            thread_ts: threadTs,
+            text: "❌ Please provide a query to test intent detection."
+        });
+        return true;
+    }
+
+    try {
+        // Post a thinking message
+        const thinkingMsg = await slack.chat.postMessage({
+            channel: channelId,
+            thread_ts: threadTs,
+            text: "🔍 Analyzing intent..."
+        });
+
+        // Import from our service
+        const { detectIntentAndWorkspace } = await import('../ai/intentDetectionService.js');
+        const { getWorkspaces } = await import('../services/llmService.js');
+        
+        // Get available workspaces
+        const workspaces = await getWorkspaces();
+        const workspaceNames = workspaces?.map(w => w.slug) || [];
+        
+        // List of available intents
+        const availableIntents = [
+            "technical_question", "best_practices_question", "historical_knowledge",
+            "bot_abilities", "docs", "greeting", "github_release_info", 
+            "github_pr_review", "github_issue_analysis", "github_api_query"
+        ];
+        
+        // Detect intent
+        const result = await detectIntentAndWorkspace(query, availableIntents, workspaceNames);
+        
+        // Format the response
+        let responseBlocks = [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Intent Detection Debug Result*\nQuery: \`${query}\``
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    {
+                        type: "mrkdwn",
+                        text: `*Primary Intent:*\n${result.intent || 'None'} (${(result.confidence * 100).toFixed(1)}%)`
+                    },
+                    {
+                        type: "mrkdwn",
+                        text: `*Suggested Workspace:*\n${result.suggestedWorkspace || 'None'}`
+                    }
+                ]
+            }
+        ];
+        
+        // Add ranked intents section if available
+        if (result.rankedIntents && result.rankedIntents.length > 0) {
+            const rankedIntentsList = result.rankedIntents
+                .slice(0, 5) // Top 5 intents
+                .map((intent, i) => `${i+1}. ${intent.name} (${(intent.confidence * 100).toFixed(1)}%)`)
+                .join("\n");
+                
+            responseBlocks.push({
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Ranked Intents:*\n${rankedIntentsList}`
+                }
+            });
+        }
+        
+        // Add ranked workspaces section if available
+        if (result.rankedWorkspaces && result.rankedWorkspaces.length > 0) {
+            const rankedWorkspacesList = result.rankedWorkspaces
+                .slice(0, 5) // Top 5 workspaces
+                .map((ws, i) => `${i+1}. ${ws.name} (${(ws.confidence * 100).toFixed(1)}%)`)
+                .join("\n");
+                
+            responseBlocks.push({
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Ranked Workspaces:*\n${rankedWorkspacesList}`
+                }
+            });
+        }
+        
+        // Update the thinking message with the result
+        await slack.chat.update({
+            channel: channelId,
+            ts: thinkingMsg.ts,
+            blocks: responseBlocks,
+            text: `Intent Detection Results for: ${query}`
+        });
+        
+        return true;
+    } catch (error) {
+        console.error("[CH - Intent Debug] Error:", error);
+        await slack.chat.postMessage({
+            channel: channelId,
+            thread_ts: threadTs,
+            text: `❌ Error testing intent detection: ${error.message}`
         });
         return true;
     }

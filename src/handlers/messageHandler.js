@@ -49,7 +49,9 @@ import {
     handleGithubReleaseInfoIntent, 
     handleGithubPrReviewIntent,
     handleGithubIssueAnalysisIntent,
-    handleGithubApiQueryIntent
+    handleGithubApiQueryIntent,
+    // --- Debug Handler ---
+    handleIntentDetectionDebugCommand
 } from './commandHandler.js';
 
 import strings from '../services/stringService.js';
@@ -238,11 +240,21 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
         return;
     }
 
-    // --- 2. Handle #delete_last_message Command ---
+    // --- 2. Handle built-in commands ---
     if (cleanedQuery.toLowerCase().startsWith('#delete_last_message')) {
         console.log("[Msg Handler] Delete command detected.");
         await handleDeleteLastMessageCommand(channelId, replyTarget, botUserId, slack);
         console.log(`[Msg Handler] Delete handled. Duration: ${Date.now() - handlerStartTime}ms`);
+        return;
+    }
+    
+    // --- New: Handle debug_intent command ---
+    if (cleanedQuery.toLowerCase().startsWith('#debug_intent')) {
+        console.log("[Msg Handler] Intent debug command detected.");
+        // Extract the query part after the command
+        const debugQuery = cleanedQuery.substring('#debug_intent'.length).trim();
+        await handleIntentDetectionDebugCommand(debugQuery, channelId, replyTarget, slack);
+        console.log(`[Msg Handler] Intent debug handled. Duration: ${Date.now() - handlerStartTime}ms`);
         return;
     }
 

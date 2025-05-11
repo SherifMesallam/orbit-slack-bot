@@ -67,7 +67,7 @@ export const intentConfidenceThreshold = parseFloat(process.env.INTENT_CONFIDENC
 export const geminiApiKey = process.env.GEMINI_API_KEY || ""; // Default: null
 
 /** @type {string} The Gemini model name to use for intent detection. */
-export const geminiModelName = process.env.GEMINI_MODEL_NAME || "gemini-2.5-pro-preview-03-25"; // Default: gemini-2.5-pro-preview-03-25
+export const geminiModelName = process.env.GEMINI_MODEL_NAME || "gemini-2.5-pro-preview-05-06"; // Default: gemini-2.5-pro-preview-05-06
 
 /** @type {string[]} Optional: List of known intent names. Might be used by providers or routing logic. */
 export const possibleIntents = JSON.parse(process.env.POSSIBLE_INTENTS || '["technical_question", "best_practices_question", "historical_knowledge", "bot_abilities", "docs", "greeting"]'); // Default: []

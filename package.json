@@ -8,7 +8,8 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "validate-config": "node -e \"import('./src/config.js').then(c => c.validateConfig()).catch(e => { console.error('Config validation failed:', e); process.exit(1); })\"",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test-intent": "node src/test-intent.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.17.0",

@@ -26,7 +26,8 @@ const defaultErrorResponse = {
     intent: null, 
     confidence: 0, 
     suggestedWorkspace: null,
-    rankedWorkspaces: []
+    rankedWorkspaces: [],
+    rankedIntents: []
 };
 
 // Help Gemini understand the different intents with examples
@@ -284,19 +285,17 @@ Your task is to:
 ${intentExamples}
 
 Respond ONLY with a single, valid JSON object containing exactly these keys:
-- "intent" (string or null): The classified intent from the allowed list
+- "intent" (string or null): The primary classified intent from the allowed list
 - "confidence" (number): Your confidence score between 0.0 and 1.0
 - "suggestedWorkspace" (string): The primary (most relevant) workspace
 - "rankedWorkspaces" (array): List of relevant workspaces with confidence scores. Each item must be an object with "name" and "confidence" properties. Always include at least one workspace.
+- "rankedIntents" (array): List of all potential matching intents, ranked by confidence. Each item must be an object with "name" and "confidence" properties.
 
 Do not include any other text, explanations, or markdown formatting like \`\`\`json.
 
 Example valid responses:
-{"intent": "technical_question", "confidence": 0.85, "suggestedWorkspace": "all", "rankedWorkspaces": [{"name": "all", "confidence": 0.85}, {"name": "gravityforms", "confidence": 0.65}, {"name": "gravityformsstripe", "confidence": 0.40}, {"name": "another-workspace", "confidence": 0.30}]}
-{"intent": "best_practices_question", "confidence": 0.7, "suggestedWorkspace": "gravityformsstipe", "rankedWorkspaces": [{"name": "gravityformsstipe", "confidence": 0.7}, {"name": "gravityforms", "confidence": 0.6}]}
-{"intent": "bot_abilities", "confidence": 0.95, "suggestedWorkspace": "all", "rankedWorkspaces": [{"name": "all", "confidence": 0.95}]}
-{"intent": "docs", "confidence": 0.82, "suggestedWorkspace": "gravityforms", "rankedWorkspaces": [{"name": "gravityforms", "confidence": 0.82}, {"name": "all", "confidence": 0.45}, {"name": "documentation", "confidence": 0.38}]}
-{"intent": null, "confidence": 0.1, "suggestedWorkspace": "gravityforms", "rankedWorkspaces": [{"name": "gravityforms", "confidence": 0.1}]}
+{"intent": "technical_question", "confidence": 0.85, "suggestedWorkspace": "all", "rankedWorkspaces": [{"name": "all", "confidence": 0.85}, {"name": "gravityforms", "confidence": 0.65}, {"name": "gravityformsstripe", "confidence": 0.40}, {"name": "another-workspace", "confidence": 0.30}], "rankedIntents": [{"name": "technical_question", "confidence": 0.85}, {"name": "docs", "confidence": 0.45}, {"name": "best_practices_question", "confidence": 0.25}]}
+{"intent": "github_release_info", "confidence": 0.92, "suggestedWorkspace": "gravityforms", "rankedWorkspaces": [{"name": "gravityforms", "confidence": 0.92}, {"name": "all", "confidence": 0.70}], "rankedIntents": [{"name": "github_release_info", "confidence": 0.92}, {"name": "docs", "confidence": 0.35}]}
 
 User Query: "${query}"
 
@@ -350,7 +349,9 @@ JSON Response:
             parsedResult.hasOwnProperty('confidence') && typeof parsedResult.confidence === 'number' &&
             parsedResult.hasOwnProperty('suggestedWorkspace') && typeof parsedResult.suggestedWorkspace === 'string' &&
             parsedResult.hasOwnProperty('rankedWorkspaces') && Array.isArray(parsedResult.rankedWorkspaces) &&
-            parsedResult.rankedWorkspaces.every(item => typeof item === 'object' && typeof item.name === 'string' && typeof item.confidence === 'number')) {
+            parsedResult.rankedWorkspaces.every(item => typeof item === 'object' && typeof item.name === 'string' && typeof item.confidence === 'number') &&
+            parsedResult.hasOwnProperty('rankedIntents') && Array.isArray(parsedResult.rankedIntents) &&
+            parsedResult.rankedIntents.every(item => typeof item === 'object' && typeof item.name === 'string' && typeof item.confidence === 'number')) {
              // Validate and clamp confidence score
             let confidence = parsedResult.confidence;
             if (isNaN(confidence) || confidence < 0 || confidence > 1) {
@@ -396,12 +397,32 @@ JSON Response:
                 console.warn(`[Gemini Intent Provider] Missing or invalid rankedWorkspaces. Created default with primary workspace.`);
             }
 
-            console.log(`[Gemini Intent Provider] Parsed result: Intent=${finalIntent}, Conf=${confidence.toFixed(2)}, SugWS=${finalWorkspace}, RankedWS=${JSON.stringify(rankedWorkspaces)}`);
+            // Ensure rankedWorkspaces exists in the result
+            if (!parsedResult.hasOwnProperty('rankedWorkspaces') || !Array.isArray(parsedResult.rankedWorkspaces)) {
+                parsedResult.rankedWorkspaces = [];
+            }
+
+            // Ensure rankedIntents exists in the result
+            if (!parsedResult.hasOwnProperty('rankedIntents') || !Array.isArray(parsedResult.rankedIntents)) {
+                // Create a default rankedIntents array with just the primary intent
+                if (finalIntent) {
+                    parsedResult.rankedIntents = [{ 
+                        name: finalIntent, 
+                        confidence: confidence
+                    }];
+                } else {
+                    parsedResult.rankedIntents = [];
+                }
+                console.warn(`[Gemini Intent Provider] Missing or invalid rankedIntents. Created default with primary intent.`);
+            }
+
+            console.log(`[Gemini Intent Provider] Parsed result: Intent=${finalIntent}, Conf=${confidence.toFixed(2)}, SugWS=${finalWorkspace}, RankedWS=${JSON.stringify(rankedWorkspaces)}, RankedIntents=${JSON.stringify(parsedResult.rankedIntents)}`);
             return {
                 intent: finalIntent,
                 confidence: confidence,
                 suggestedWorkspace: finalWorkspace,
-                rankedWorkspaces: rankedWorkspaces
+                rankedWorkspaces: rankedWorkspaces,
+                rankedIntents: parsedResult.rankedIntents
             };
         } else {
             // Log if the parsed structure is invalid
@@ -412,6 +433,33 @@ JSON Response:
         // Log if JSON parsing fails
         console.error("[Gemini Intent Provider] Failed to parse JSON response from Gemini:", parseError, "\nRaw text received:", responseText);
         return defaultErrorResponse;
+    }
+}
+
+/**
+ * Simple test function to verify intent detection for release queries.
+ * This is for development/debugging only and should be removed in production.
+ * @param {string} query - The query to test
+ * @param {string[]} [availableIntents=[]] - Optional list of available intents
+ * @param {string[]} [availableWorkspaces=[]] - Optional list of available workspaces
+ * @returns {Promise<void>} - Logs the result to the console
+ */
+export async function testReleaseIntentDetection(query, availableIntents = [], availableWorkspaces = []) {
+    console.log(`[Gemini Intent Test] Testing query: "${query}"`);
+    try {
+        const result = await detectIntent(
+            query, 
+            availableIntents.length > 0 ? availableIntents : [
+                "technical_question", "best_practices_question", "historical_knowledge",
+                "bot_abilities", "docs", "greeting", "github_release_info", 
+                "github_pr_review", "github_issue_analysis", "github_api_query"
+            ],
+            availableWorkspaces.length > 0 ? availableWorkspaces : ["all", "gravityforms", "gravityformsstripe"]
+        );
+        console.log("[Gemini Intent Test] Result:", JSON.stringify(result, null, 2));
+        return result;
+    } catch (error) {
+        console.error("[Gemini Intent Test] Error:", error);
     }
 }
 
