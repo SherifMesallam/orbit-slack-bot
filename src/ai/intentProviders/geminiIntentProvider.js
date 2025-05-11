@@ -29,6 +29,151 @@ const defaultErrorResponse = {
     rankedWorkspaces: []
 };
 
+// Help Gemini understand the different intents with examples
+const intentExamples = `
+EXAMPLES:
+
+# github_release_info intent examples:
+- "What's the latest version of gravityforms?" → github_release_info
+- "When was the last update for stripe addon?" → github_release_info
+- "What is the latest core release?" → github_release_info
+- "Has there been a new version of PayPal released?" → github_release_info
+- "Tell me about the most recent Gravity Forms update" → github_release_info
+- "What's new in the latest release?" → github_release_info
+- "When did gravityforms last update?" → github_release_info
+- "Is there a new version of the Stripe add-on?" → github_release_info
+- "What changed in version 2.8?" → github_release_info
+- "Release notes for Gravity Forms" → github_release_info
+- "When will the next version of Gravity Forms be released?" → github_release_info
+- "What's included in the latest core update?" → github_release_info
+- "Give me information about the current version of core" → github_release_info
+- "Has Gravity Forms core been updated recently?" → github_release_info
+- "Tell me about the most recent core release" → github_release_info
+- "I want to know about the latest version" → github_release_info
+- "What version of Gravity Forms am I supposed to be running?" → github_release_info
+- "Check if there's a new release available for Gravity Forms" → github_release_info
+- "Are there any recent updates to the PayPal addon?" → github_release_info
+- "What's the current stable release of Gravity Forms?" → github_release_info
+
+# github_api_query intent examples:
+- "Find all issues labeled bugs" → github_api_query
+- "Get a list of open pull requests" → github_api_query
+- "Find issues assigned to John" → github_api_query
+- "Show me issues with the enhancement label" → github_api_query
+- "Search for repositories with 'gravity' in the name" → github_api_query
+- "Fetch all issues created in the last month" → github_api_query
+- "List all branches in the gravityforms repo" → github_api_query
+- "Get the contributors for the Stripe add-on" → github_api_query
+- "Find pull requests that mention webhooks" → github_api_query
+- "Show me closed issues from last week" → github_api_query
+- "How many open issues are there in the gravityforms repo?" → github_api_query
+- "Can you check if there are any pull requests waiting for review?" → github_api_query
+- "I need to see all bugs reported in the last week" → github_api_query
+- "Could you look up issues related to payment processing?" → github_api_query
+- "Show me issues mentioning PayPal" → github_api_query
+- "Retrieve all issues with high priority" → github_api_query
+- "What's the most commented issue in the repo?" → github_api_query
+- "Find issues that haven't been updated in a month" → github_api_query
+- "Get me a list of all issues tagged as 'needs help'" → github_api_query
+- "How many pull requests were merged last month?" → github_api_query
+
+# github_pr_review intent examples:
+- "Review PR 123 in the gravityforms repo" → github_pr_review
+- "Can you look at pull request #456?" → github_pr_review
+- "Analyze the changes in PR 789" → github_pr_review
+- "Summarize what PR #234 is doing" → github_pr_review
+- "What's in pull request 567?" → github_pr_review
+- "Check if PR 890 has any issues" → github_pr_review
+- "Review the Stripe integration pull request" → github_pr_review
+- "Is pull request 345 ready to be merged?" → github_pr_review
+- "Explain what PR #678 is trying to accomplish" → github_pr_review
+- "Help me understand this pull request" → github_pr_review
+
+# github_issue_analysis intent examples:
+- "Analyze issue #456" → github_issue_analysis
+- "Explain GitHub issue 789" → github_issue_analysis
+- "What's happening with issue #123?" → github_issue_analysis
+- "Summarize the problem in issue 567" → github_issue_analysis
+- "Help me understand issue #890" → github_issue_analysis
+- "What's issue #234 all about?" → github_issue_analysis
+- "Give me details on GitHub issue 345" → github_issue_analysis
+- "Analyze the bug reported in issue #678" → github_issue_analysis
+- "What's the status of issue 901?" → github_issue_analysis
+- "Is issue #432 still relevant?" → github_issue_analysis
+
+# docs intent examples:
+- "How do I use the Gravity Forms conditional logic?" → docs
+- "What are the steps to set up a form?" → docs
+- "Explain how the email notifications work" → docs
+- "What payment gateways are supported?" → docs
+- "How do I create a multi-page form?" → docs
+- "What field types are available in Gravity Forms?" → docs
+- "How to set up user registration with Gravity Forms?" → docs
+- "Explain the difference between posts and custom post types" → docs
+- "Show me how to use calculations in forms" → docs
+- "What does the 'enable AJAX' setting do?" → docs
+
+# technical_question intent examples:
+- "Can you help me debug this PHP code?" → technical_question
+- "Why is my form submission failing?" → technical_question
+- "How do I fix this JavaScript error in my form?" → technical_question
+- "What does this error message mean?" → technical_question
+- "How can I optimize my form's performance?" → technical_question
+- "Why doesn't my conditional logic work?" → technical_question
+- "How do I intercept form submissions programmatically?" → technical_question
+- "What's causing this validation error?" → technical_question
+- "How do I add custom CSS to my form?" → technical_question
+- "What hooks are available for the payment process?" → technical_question
+
+# best_practices_question intent examples:
+- "What's the best way to implement webhooks?" → best_practices_question
+- "Should I use AJAX for my forms?" → best_practices_question
+- "What's the recommended approach for handling file uploads?" → best_practices_question
+- "How should I structure my form for better conversion?" → best_practices_question
+- "Best practices for form security?" → best_practices_question
+- "What's the proper way to use the Gravity Forms API?" → best_practices_question
+- "Is it better to use multiple forms or one form with conditional logic?" → best_practices_question
+- "Recommended setup for high-traffic forms?" → best_practices_question
+- "Best way to integrate Gravity Forms with a custom theme?" → best_practices_question
+- "What's the right approach for importing legacy form data?" → best_practices_question
+
+# historical_knowledge intent examples:
+- "Why was the legacy payment system deprecated?" → historical_knowledge
+- "When was the REST API introduced?" → historical_knowledge
+- "What were the major changes in version 2.0?" → historical_knowledge
+- "Why did you decide to remove the old user interface?" → historical_knowledge
+- "How has the form builder evolved over time?" → historical_knowledge
+- "What was the reason for changing how conditional logic works?" → historical_knowledge
+- "When did Gravity Forms first add support for Gutenberg?" → historical_knowledge
+- "What led to the creation of the Gravity Flow add-on?" → historical_knowledge
+- "How did you handle the transition to WordPress 5.0?" → historical_knowledge
+- "What legacy features are no longer supported?" → historical_knowledge
+
+# bot_abilities intent examples:
+- "What can you help me with?" → bot_abilities
+- "What are you capable of doing?" → bot_abilities
+- "What commands do you understand?" → bot_abilities
+- "How can you assist me with Gravity Forms?" → bot_abilities
+- "What GitHub functions can you perform?" → bot_abilities
+- "Can you help me with API requests?" → bot_abilities
+- "What knowledge do you have about WordPress?" → bot_abilities
+- "Are you able to analyze code?" → bot_abilities
+- "What types of questions can I ask you?" → bot_abilities
+- "What are your limitations?" → bot_abilities
+
+# greeting intent examples:
+- "Hi there" → greeting
+- "Hello" → greeting
+- "Hey bot" → greeting
+- "Good morning" → greeting
+- "Hi, how are you?" → greeting
+- "Hello Orbit" → greeting
+- "Hey, what's up?" → greeting
+- "Greetings" → greeting
+- "Hi! Nice to meet you" → greeting
+- "Hello, I'm new here" → greeting
+`;
+
 /**
  * Detects intent and suggests a workspace using the Gemini API.
  *
@@ -78,13 +223,13 @@ ${availableIntents.map((intent, index) => {
             description = "Queries about what the bot can do, access, or help with.";
             break;
         case "docs":
-            description = "Queries about documentation, usage instructions, or explanatory content.";
+            description = "Queries about documentation content, usage instructions, general knowledge about features, or explanatory content. Only use when the user is asking about how to understand or use a feature, NOT when asking about version information.";
             break;
         case "greeting":
             description = "Simple greetings, introductions, or conversation starters.";
             break;
         case "github_release_info":
-            description = "Queries about the latest release for a repository or add-on.";
+            description = "Queries about version information, release dates, latest release versions, changelogs, or what's new in a repository or add-on. Use whenever the user asks about 'latest version', 'release', 'update', or 'what's new'.";
             break;
         case "github_pr_review":
             description = "Requests to review or summarize a pull request.";
@@ -110,6 +255,12 @@ ${availableIntents.map((intent, index) => {
 - If the query doesn't fit any category well, use "technical_question" as the default.
 - Ignore formal greeting parts of queries when determining intent.
 - For simple greetings with no other content, use the "greeting" intent.
+- For queries about latest version, release dates, "core release" or "what's new", ALWAYS use "github_release_info".
+- For queries about how to use features or general product knowledge, use "docs".
+- For queries asking to find, list, search for, or retrieve information from GitHub like issues or PRs, use "github_api_query".
+- For queries requesting analysis or explanation of a specific issue, use "github_issue_analysis".
+- For queries asking about a specific PR review, use "github_pr_review".
+- Prioritize GitHub-specific intents (github_*) when a query mentions GitHub entities like issues, PRs, releases, etc.
 
 Your classification must be precise and consistent, using ONLY the exact intent names listed above.`
         : 'Determine the most appropriate intent that describes the user query.';
@@ -129,6 +280,8 @@ Your task is to:
 1. ${intentList}
 2. Estimate your confidence in this classification (a number strictly between 0.0 and 1.0).
 3. ${workspaceList}
+
+${intentExamples}
 
 Respond ONLY with a single, valid JSON object containing exactly these keys:
 - "intent" (string or null): The classified intent from the allowed list
