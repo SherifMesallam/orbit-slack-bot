@@ -444,7 +444,7 @@ export async function handleIssueAnalysisCommand(owner, repo, issueNumber, userP
         if (issueDetails.comments && issueDetails.comments.length > 0) { /* ... format comments ... */ issueContext += `**Recent Comments (${Math.min(issueDetails.comments.length, MAX_COMMENTS_ISSUE)}):**\n`; issueDetails.comments.slice(-MAX_COMMENTS_ISSUE).forEach(c => { issueContext += `*${c.user}:* ${(c.body || '').substring(0, MAX_COMMENT_LENGTH)}\n---\n`; }); }
         // --- End Context ---
 
-        await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: `:mag: Summarizing issue #${issueNumber}...` });
+        await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: `:mag: Summarizing issue #${issueNumber} using "${workspaceSlugForLlm}" workspace...` });
         const summarizePrompt = `Summarize GitHub issue ${owner}/${repo}#${issueNumber}:\n\n${issueContext}`;
         const summaryResponse = await queryLlm(workspaceSlugForLlm, anythingLLMThreadSlug, summarizePrompt); // Use provided workspace/thread
         if (!summaryResponse) throw new Error('LLM failed summary.');
@@ -456,7 +456,7 @@ export async function handleIssueAnalysisCommand(owner, repo, issueNumber, userP
 
         await slack.chat.postMessage({ channel, thread_ts: replyTarget, text: `Summary issue #${issueNumber}:`, blocks: summaryBlock ? [summaryBlock] : undefined });
 
-        await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: `:brain: Analyzing issue #${issueNumber}...` });
+        await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: `:brain: Analyzing issue #${issueNumber} using "${workspaceSlugForLlm}" workspace...` });
         let analyzePrompt = `Based on summary ("${summaryResponse.substring(0, 300)}...") and context, analyze issue ${owner}/${repo}#${issueNumber}`;
         if (userPrompt) { analyzePrompt += ` addressing: "${userPrompt}"`; } else { analyzePrompt += `. Key points, causes, next steps?`; }
         analyzePrompt += `\n\n**Full Context:**\n${issueContext}`;
@@ -475,7 +475,7 @@ export async function handleIssueAnalysisCommand(owner, repo, issueNumber, userP
 
     } catch (error) {
         console.error(`[CH - Issue Analysis] Error for ${owner}/${repo}#${issueNumber}:`, error);
-        await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: `❌ Error analyzing issue #${issueNumber}: ${error.message}` });
+        await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: `❌ Error analyzing issue #${issueNumber} with "${workspaceSlugForLlm}" workspace: ${error.message}` });
         return true;
     }
 }
@@ -1068,6 +1068,11 @@ export async function handleGithubIssueAnalysisIntent(intentContext) {
         }
         
         console.log(`[CommandHandler] Extracted Issue: ${owner}/${repo}#${issueNumber}, Workspace: ${workspaceSlug}, Prompt: ${userPrompt || 'None'}`);
+        
+        // Update thinking message with workspace info
+        await updateOrDeleteThinkingMessage(localThinkingMessageTs, slack, channelId, { 
+            text: `:hourglass_flowing_sand: Processing issue analysis for ${owner}/${repo}#${issueNumber} using "${workspaceSlug}" workspace...` 
+        });
         
         // Call the existing handler
         console.log(`[CommandHandler] Debug - About to call handleIssueAnalysisCommand`);
