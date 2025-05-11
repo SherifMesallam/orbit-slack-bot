@@ -22,7 +22,12 @@ const safetySettings = [
   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
 ];
 // Default response structure in case of errors or invalid responses
-const defaultErrorResponse = { intent: null, confidence: 0, suggestedWorkspace: null };
+const defaultErrorResponse = { 
+    intent: null, 
+    confidence: 0, 
+    suggestedWorkspace: null,
+    rankedWorkspaces: []
+};
 
 /**
  * Detects intent and suggests a workspace using the Gemini API.
@@ -99,7 +104,9 @@ Your classification must be precise and consistent, using ONLY the exact intent 
 
     // Workspace suggestion instructions
     const workspaceList = availableWorkspaces.length > 0
-        ? `Suggest the single most relevant workspace for this query based on its topic, choosing ONLY from this list: [${availableWorkspaces.join(', ')}].`
+        ? `Consider which workspaces from this list would be most relevant to the query: [${availableWorkspaces.join(', ')}].
+        
+Analyze the query's topic and rank the most relevant workspaces in order of relevance. Include only workspaces that have meaningful relevance to the query.`
         : 'Use all for the suggested workspace.';
 
     // The core prompt instructing the model on its task and desired output format.
@@ -111,16 +118,20 @@ Your task is to:
 2. Estimate your confidence in this classification (a number strictly between 0.0 and 1.0).
 3. ${workspaceList}
 
-Respond ONLY with a single, valid JSON object containing exactly three keys: "intent" (string or null), "confidence" (number between 0.0 and 1.0), and "suggestedWorkspace" (string). Do not include any other text, explanations, or markdown formatting like \`\`\`json.
+Respond ONLY with a single, valid JSON object containing exactly these keys:
+- "intent" (string or null): The classified intent from the allowed list
+- "confidence" (number): Your confidence score between 0.0 and 1.0
+- "suggestedWorkspace" (string): The primary (most relevant) workspace
+- "rankedWorkspaces" (array): Up to 3 workspaces in descending order of relevance, with confidence scores
+
+Do not include any other text, explanations, or markdown formatting like \`\`\`json.
 
 Example valid responses:
-{"intent": "technical_question", "confidence": 0.85, "suggestedWorkspace": "all"}
-{"intent": "best_practices_question", "confidence": 0.7, "suggestedWorkspace": "gravityformsstipe"}
-{"intent": "bot_abilities", "confidence": 0.95, "suggestedWorkspace": "all"}
-{"intent": "docs", "confidence": 0.82, "suggestedWorkspace": "gravityforms"}
-{"intent": "greeting", "confidence": 0.99, "suggestedWorkspace": "all"}
-{"intent": "historical_knowledge", "confidence": 0.75, "suggestedWorkspace": "all"}
-{"intent": null, "confidence": 0.1, "suggestedWorkspace": "gravityforms"}
+{"intent": "technical_question", "confidence": 0.85, "suggestedWorkspace": "all", "rankedWorkspaces": [{"name": "all", "confidence": 0.85}, {"name": "gravityforms", "confidence": 0.65}, {"name": "gravityformsstripe", "confidence": 0.40}, {"name": "another-workspace", "confidence": 0.30}]}
+{"intent": "best_practices_question", "confidence": 0.7, "suggestedWorkspace": "gravityformsstipe", "rankedWorkspaces": [{"name": "gravityformsstipe", "confidence": 0.7}, {"name": "gravityforms", "confidence": 0.6}]}
+{"intent": "bot_abilities", "confidence": 0.95, "suggestedWorkspace": "all", "rankedWorkspaces": [{"name": "all", "confidence": 0.95}]}
+{"intent": "docs", "confidence": 0.82, "suggestedWorkspace": "gravityforms", "rankedWorkspaces": [{"name": "gravityforms", "confidence": 0.82}, {"name": "all", "confidence": 0.45}, {"name": "documentation", "confidence": 0.38}]}
+{"intent": null, "confidence": 0.1, "suggestedWorkspace": "gravityforms", "rankedWorkspaces": [{"name": "gravityforms", "confidence": 0.1}]}
 
 User Query: "${query}"
 
@@ -172,8 +183,9 @@ JSON Response:
         if (typeof parsedResult === 'object' && parsedResult !== null &&
             parsedResult.hasOwnProperty('intent') && // Key must exist, value can be null
             parsedResult.hasOwnProperty('confidence') && typeof parsedResult.confidence === 'number' &&
-            parsedResult.hasOwnProperty('suggestedWorkspace')) // Key must exist, value can be null
-        {
+            parsedResult.hasOwnProperty('suggestedWorkspace') && typeof parsedResult.suggestedWorkspace === 'string' &&
+            parsedResult.hasOwnProperty('rankedWorkspaces') && Array.isArray(parsedResult.rankedWorkspaces) &&
+            parsedResult.rankedWorkspaces.every(item => typeof item === 'object' && typeof item.name === 'string' && typeof item.confidence === 'number')) {
              // Validate and clamp confidence score
             let confidence = parsedResult.confidence;
             if (isNaN(confidence) || confidence < 0 || confidence > 1) {
@@ -200,12 +212,31 @@ JSON Response:
             const finalWorkspace = (typeof parsedResult.suggestedWorkspace === 'string' && parsedResult.suggestedWorkspace.trim()) 
                 ? parsedResult.suggestedWorkspace.trim() 
                 : null;
+            
+            // Process rankedWorkspaces or create default if missing/invalid
+            let rankedWorkspaces = [];
+            if (Array.isArray(parsedResult.rankedWorkspaces) && 
+                parsedResult.rankedWorkspaces.every(item => 
+                    typeof item === 'object' && 
+                    typeof item.name === 'string' && 
+                    typeof item.confidence === 'number')) {
+                // Valid array format, just use it
+                rankedWorkspaces = parsedResult.rankedWorkspaces;
+            } else if (finalWorkspace) {
+                // Create a default entry with just the primary workspace
+                rankedWorkspaces = [{ 
+                    name: finalWorkspace, 
+                    confidence: confidence
+                }];
+                console.warn(`[Gemini Intent Provider] Missing or invalid rankedWorkspaces. Created default with primary workspace.`);
+            }
 
-            console.log(`[Gemini Intent Provider] Parsed result: Intent=${finalIntent}, Conf=${confidence.toFixed(2)}, SugWS=${finalWorkspace}`);
+            console.log(`[Gemini Intent Provider] Parsed result: Intent=${finalIntent}, Conf=${confidence.toFixed(2)}, SugWS=${finalWorkspace}, RankedWS=${JSON.stringify(rankedWorkspaces)}`);
             return {
                 intent: finalIntent,
                 confidence: confidence,
-                suggestedWorkspace: finalWorkspace
+                suggestedWorkspace: finalWorkspace,
+                rankedWorkspaces: rankedWorkspaces
             };
         } else {
             // Log if the parsed structure is invalid

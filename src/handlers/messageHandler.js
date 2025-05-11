@@ -109,6 +109,7 @@ async function updateOrDeleteThinkingMessage(thinkingMessageTsOrPromise, slack, 
  * @param {number} params.confidence - The confidence score for the detected intent.
  * @param {boolean} params.intentImplemented - Whether the intent was handled by a specific implementation.
  * @param {string|null} params.suggestedWorkspace - The workspace suggested by intent detection.
+ * @param {Array} params.rankedWorkspaces - Array of workspace suggestions with confidence scores.
  * @param {string} params.finalWorkspace - The final workspace used for the query.
  * @param {string} params.llmInputText - The input text sent to AnythingLLM.
  * @returns {object} Slack blocks for the debug message.
@@ -119,12 +120,23 @@ function createIntentDebugMessage({
     confidence,
     intentImplemented,
     suggestedWorkspace,
+    rankedWorkspaces = [],
     finalWorkspace,
     llmInputText
 }) {
     const truncatedQuery = llmInputText.length > 200 
         ? llmInputText.substring(0, 200) + '...' 
         : llmInputText;
+    
+    // Format the ranked workspaces for display
+    let rankedWorkspacesText = '';
+    if (rankedWorkspaces && rankedWorkspaces.length > 0) {
+        rankedWorkspacesText = rankedWorkspaces
+            .map((ws, index) => `${index + 1}. ${ws.name} (${Number(ws.confidence).toFixed(2)})`)
+            .join('\n');
+    } else {
+        rankedWorkspacesText = 'None';
+    }
     
     return {
         blocks: [
@@ -153,7 +165,12 @@ function createIntentDebugMessage({
                     {
                         type: "mrkdwn",
                         text: `*Intent Implemented:* ${intentImplemented ? 'Yes' : 'No'}`
-                    },
+                    }
+                ]
+            },
+            {
+                type: "section",
+                fields: [
                     {
                         type: "mrkdwn",
                         text: `*Suggested Workspace:* ${suggestedWorkspace || 'None'}`
@@ -163,6 +180,13 @@ function createIntentDebugMessage({
                         text: `*Final Workspace:* ${finalWorkspace || 'None'}`
                     }
                 ]
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Ranked Workspaces:*\n${rankedWorkspacesText}`
+                }
             },
             {
                 type: "section",
