@@ -713,6 +713,12 @@ export async function handleGithubReleaseInfoIntent(intentContext) {
         
         console.log(`[CommandHandler] Extracted repo identifier: ${repoIdentifier}`);
         
+        // FIXED: Check if repoIdentifier is numeric (likely an issue or PR number mistakenly detected)
+        if (/^\d+$/.test(repoIdentifier)) {
+            console.log(`[CommandHandler] Repo identifier is numeric (${repoIdentifier}), likely an issue or PR number. Using default repository.`);
+            repoIdentifier = 'gravityforms';
+        }
+        
         // Call the existing handler
         console.log(`[CommandHandler] Calling handleReleaseInfoCommand with repo: ${repoIdentifier}`);
         return await handleReleaseInfoCommand(
@@ -842,6 +848,12 @@ export async function handleGithubPrReviewIntent(intentContext) {
         // This change automatically uses the repository name as the workspace
         let workspaceSlug = repo;
         
+        // FIXED: Ensure workspaceSlug is not equal to the PR number (this would be an invalid workspace)
+        if (workspaceSlug === prNumber.toString()) {
+            console.log(`[CommandHandler] Debug - Workspace cannot be the PR number. Using repo name instead.`);
+            workspaceSlug = 'gravityforms';
+        }
+        
         // Check if repo has a gravityforms prefix and strip it if needed
         if (repo.startsWith("gravityforms") && repo !== "gravityforms") {
             // For repositories like "gravityformsstripe", use "stripe" as workspace
@@ -849,6 +861,9 @@ export async function handleGithubPrReviewIntent(intentContext) {
             if (repoWithoutPrefix.length > 0) {
                 workspaceSlug = repoWithoutPrefix;
                 console.log(`[CommandHandler] Debug - Extracted workspace from repo: ${workspaceSlug}`);
+            } else {
+                // If the prefix removal results in an empty string, use the full name
+                workspaceSlug = repo;
             }
         }
         
@@ -856,13 +871,25 @@ export async function handleGithubPrReviewIntent(intentContext) {
         const workspacePattern = /#([a-zA-Z0-9._-]+)/i;
         const workspaceMatch = query.match(workspacePattern);
         if (workspaceMatch && workspaceMatch[1]) {
-            workspaceSlug = workspaceMatch[1].trim();
-            console.log(`[CommandHandler] Explicit workspace specified in query: ${workspaceSlug}`);
+            // Make sure the matched workspace is not just the PR number
+            const matchedWorkspace = workspaceMatch[1].trim();
+            if (matchedWorkspace !== prNumber.toString()) {
+                workspaceSlug = matchedWorkspace;
+                console.log(`[CommandHandler] Explicit workspace specified in query: ${workspaceSlug}`);
+            } else {
+                console.log(`[CommandHandler] Ignoring matched workspace as it's the PR number: ${matchedWorkspace}`);
+            }
+        }
+        
+        // FIXED: Validate that workspaceSlug is not a number
+        if (/^\d+$/.test(workspaceSlug)) {
+            console.log(`[CommandHandler] Debug - Workspace cannot be numeric (${workspaceSlug}). Using default workspace.`);
+            workspaceSlug = githubWorkspaceSlug || 'github';
         }
         
         // Fallback to githubWorkspaceSlug if none of the above are available
         if (!workspaceSlug) {
-            workspaceSlug = githubWorkspaceSlug;
+            workspaceSlug = githubWorkspaceSlug || 'github';
             console.log(`[CommandHandler] Using default GitHub workspace: ${workspaceSlug}`);
         }
         
@@ -909,6 +936,29 @@ export async function handleGithubIssueAnalysisIntent(intentContext) {
         intentResult 
     } = intentContext;
     
+    // Validate that we have the required components
+    if (!slack || !channelId) {
+        console.error(`[CommandHandler] Missing required parameters: slack=${!!slack}, channelId=${!!channelId}`);
+        return false;
+    }
+    
+    // Create a thinking message if one wasn't provided
+    let localThinkingMessageTs = thinkingMessageTs;
+    if (!localThinkingMessageTs) {
+        try {
+            console.log(`[CommandHandler] No thinking message found, creating one for github_issue_analysis`);
+            const thinkingMsg = await slack.chat.postMessage({ 
+                channel: channelId, 
+                thread_ts: replyTarget, 
+                text: ":hourglass_flowing_sand: Processing issue analysis request..." 
+            });
+            localThinkingMessageTs = thinkingMsg?.ts;
+        } catch (err) {
+            console.error("[CommandHandler] Failed to post thinking message:", err.data?.error || err.message);
+            // Continue without thinking message
+        }
+    }
+    
     console.log(`[CommandHandler] Handling github_issue_analysis intent for query: "${query}"`);
     
     try {
@@ -926,6 +976,7 @@ export async function handleGithubIssueAnalysisIntent(intentContext) {
         for (const pattern of issuePatterns) {
             const match = query.match(pattern);
             if (match) {
+                console.log(`[CommandHandler] Debug - Issue pattern matched:`, JSON.stringify(match));
                 if (match[3]) {
                     // We matched the owner/repo#number format
                     owner = match[1];
@@ -941,6 +992,7 @@ export async function handleGithubIssueAnalysisIntent(intentContext) {
         
         // If we only have an issue number, determine owner/repo 
         if (issueNumber && !owner) {
+            console.log(`[CommandHandler] Debug - Only issue number found: ${issueNumber}, determining owner/repo`);
             // Default to GITHUB_OWNER and extract repo from query or use a default
             owner = GITHUB_OWNER;
             
@@ -949,27 +1001,59 @@ export async function handleGithubIssueAnalysisIntent(intentContext) {
             const repoMatch = query.match(repoPattern);
             if (repoMatch && repoMatch[1]) {
                 repo = repoMatch[1].trim();
+                console.log(`[CommandHandler] Debug - Found repo in query: ${repo}`);
             } else {
                 // Default to backlog if no repo specified
                 repo = 'backlog';
+                console.log(`[CommandHandler] Debug - Using default repo: ${repo}`);
             }
         }
         
         if (!owner || !repo || !issueNumber) {
-            await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { 
+            console.log(`[CommandHandler] Debug - Missing required information: owner=${owner}, repo=${repo}, issueNumber=${issueNumber}`);
+            await updateOrDeleteThinkingMessage(localThinkingMessageTs, slack, channelId, { 
                 text: "I couldn't determine the issue details. Please specify using format: owner/repo#number or issue number" 
             });
             return true;
         }
         
         // Determine workspace to use from intentResult or fallback
-        let workspaceSlug = intentResult?.suggestedWorkspace || githubWorkspaceSlug;
+        let workspaceSlug = intentResult?.suggestedWorkspace || githubWorkspaceSlug || 'github';
+        
+        // FIXED: Ensure workspaceSlug is not equal to the issue number (this would be an invalid workspace)
+        if (workspaceSlug === issueNumber.toString()) {
+            console.log(`[CommandHandler] Debug - Workspace cannot be the issue number. Using repo name instead.`);
+            workspaceSlug = repo;
+        }
+        
+        // FIXED: Extract workspace from repo if it makes sense
+        if (repo.startsWith("gravityforms") && repo !== "gravityforms" && workspaceSlug === repo) {
+            // For repositories like "gravityformsstripe", use "stripe" as workspace
+            const repoWithoutPrefix = repo.replace("gravityforms", "");
+            if (repoWithoutPrefix.length > 0) {
+                workspaceSlug = repoWithoutPrefix;
+                console.log(`[CommandHandler] Debug - Extracted workspace from repo: ${workspaceSlug}`);
+            }
+        }
         
         // Override with explicit workspace if specified in query
         const workspacePattern = /#([a-zA-Z0-9._-]+)/i;
         const workspaceMatch = query.match(workspacePattern);
         if (workspaceMatch && workspaceMatch[1]) {
-            workspaceSlug = workspaceMatch[1].trim();
+            // Make sure the matched workspace is not just the issue number
+            const matchedWorkspace = workspaceMatch[1].trim();
+            if (matchedWorkspace !== issueNumber.toString()) {
+                workspaceSlug = matchedWorkspace;
+                console.log(`[CommandHandler] Explicit workspace specified in query: ${workspaceSlug}`);
+            } else {
+                console.log(`[CommandHandler] Ignoring matched workspace as it's the issue number: ${matchedWorkspace}`);
+            }
+        }
+        
+        // FIXED: Validate that workspaceSlug is not a number
+        if (/^\d+$/.test(workspaceSlug)) {
+            console.log(`[CommandHandler] Debug - Workspace cannot be numeric (${workspaceSlug}). Using default workspace.`);
+            workspaceSlug = githubWorkspaceSlug || 'github';
         }
         
         // Extract user prompt - anything after the issue identification that isn't a workspace
@@ -986,7 +1070,8 @@ export async function handleGithubIssueAnalysisIntent(intentContext) {
         console.log(`[CommandHandler] Extracted Issue: ${owner}/${repo}#${issueNumber}, Workspace: ${workspaceSlug}, Prompt: ${userPrompt || 'None'}`);
         
         // Call the existing handler
-        return await handleIssueAnalysisCommand(
+        console.log(`[CommandHandler] Debug - About to call handleIssueAnalysisCommand`);
+        const result = await handleIssueAnalysisCommand(
             owner,
             repo,
             issueNumber,
@@ -995,13 +1080,15 @@ export async function handleGithubIssueAnalysisIntent(intentContext) {
             channelId,
             slack,
             octokit,
-            thinkingMessageTs,
+            localThinkingMessageTs,
             workspaceSlug,
             null // anythingLLMThreadSlug - create new for this request
         );
+        console.log(`[CommandHandler] Debug - handleIssueAnalysisCommand returned: ${result}`);
+        return result;
     } catch (error) {
         console.error(`[CommandHandler] Error handling github_issue_analysis intent:`, error);
-        await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { 
+        await updateOrDeleteThinkingMessage(localThinkingMessageTs, slack, channelId, { 
             text: `❌ Error analyzing issue: ${error.message}` 
         });
         return true;
@@ -1024,6 +1111,29 @@ export async function handleGithubApiQueryIntent(intentContext) {
         intentResult 
     } = intentContext;
     
+    // Validate that we have the required components
+    if (!slack || !channelId) {
+        console.error(`[CommandHandler] Missing required parameters: slack=${!!slack}, channelId=${!!channelId}`);
+        return false;
+    }
+    
+    // Create a thinking message if one wasn't provided
+    let localThinkingMessageTs = thinkingMessageTs;
+    if (!localThinkingMessageTs) {
+        try {
+            console.log(`[CommandHandler] No thinking message found, creating one for github_api_query`);
+            const thinkingMsg = await slack.chat.postMessage({ 
+                channel: channelId, 
+                thread_ts: replyTarget, 
+                text: ":hourglass_flowing_sand: Processing GitHub API query..." 
+            });
+            localThinkingMessageTs = thinkingMsg?.ts;
+        } catch (err) {
+            console.error("[CommandHandler] Failed to post thinking message:", err.data?.error || err.message);
+            // Continue without thinking message
+        }
+    }
+    
     console.log(`[CommandHandler] Handling github_api_query intent for query: "${query}"`);
     
     try {
@@ -1043,27 +1153,48 @@ export async function handleGithubApiQueryIntent(intentContext) {
         apiQuery = apiQuery.trim();
         
         if (!apiQuery) {
-            await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { 
+            console.log(`[CommandHandler] Empty API query after cleaning`);
+            await updateOrDeleteThinkingMessage(localThinkingMessageTs, slack, channelId, { 
                 text: "I couldn't determine what API query you want to make. Please provide more details." 
             });
             return true;
         }
         
+        // Determine which workspaces to use
+        // Use default GitHub workspace for API queries, or fallback to githubWorkspaceSlug
+        let apiWorkspaceSlug = githubWorkspaceSlug || 'github';
+        let formatterWorkspaceSlug = formatterWorkspaceSlug || 'default';
+        
+        // FIXED: Validate that workspace slugs are not numeric
+        if (/^\d+$/.test(apiWorkspaceSlug)) {
+            console.log(`[CommandHandler] Debug - API workspace slug cannot be numeric (${apiWorkspaceSlug}). Using default.`);
+            apiWorkspaceSlug = 'github';
+        }
+        
+        if (/^\d+$/.test(formatterWorkspaceSlug)) {
+            console.log(`[CommandHandler] Debug - Formatter workspace slug cannot be numeric (${formatterWorkspaceSlug}). Using default.`);
+            formatterWorkspaceSlug = 'default';
+        }
+        
         console.log(`[CommandHandler] Extracted API query: "${apiQuery}"`);
+        console.log(`[CommandHandler] Using workspaces - API: ${apiWorkspaceSlug}, Formatter: ${formatterWorkspaceSlug}`);
         
         // Call the existing handler
-        return await handleGithubApiCommand(
+        console.log(`[CommandHandler] Debug - About to call handleGithubApiCommand`);
+        const result = await handleGithubApiCommand(
             apiQuery,
             replyTarget,
             channelId,
             slack,
-            thinkingMessageTs,
-            githubWorkspaceSlug,
+            localThinkingMessageTs,
+            apiWorkspaceSlug,
             formatterWorkspaceSlug
         );
+        console.log(`[CommandHandler] Debug - handleGithubApiCommand returned: ${result}`);
+        return result;
     } catch (error) {
         console.error(`[CommandHandler] Error handling github_api_query intent:`, error);
-        await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { 
+        await updateOrDeleteThinkingMessage(localThinkingMessageTs, slack, channelId, { 
             text: `❌ Error processing API query: ${error.message}` 
         });
         return true;
