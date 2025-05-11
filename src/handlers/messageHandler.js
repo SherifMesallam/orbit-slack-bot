@@ -44,11 +44,13 @@ import {
     handlePrReviewCommand,
     handleIssueAnalysisCommand,
     handleGithubApiCommand,
-    // --- Placeholder Intent Handlers (to be created) ---
-    // handleGithubLookupIntent,
-    // handleFaqIntent,
-    handleGreetingIntent, // Add the greeting intent handler
-} from './commandHandler.js'; // Or import from './intentHandler.js' later
+    // --- Intent Handlers ---
+    handleGreetingIntent,
+    handleGithubReleaseInfoIntent, 
+    handleGithubPrReviewIntent,
+    handleGithubIssueAnalysisIntent,
+    handleGithubApiQueryIntent
+} from './commandHandler.js';
 
 import strings from '../services/stringService.js';
 // --- Command Patterns ---
@@ -408,6 +410,82 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                         // Update debug info
                         intentDebugInfo.intentImplemented = true;
                         intentDebugInfo.finalWorkspace = fallbackWorkspace;
+                        
+                        // Post debug message
+                        try {
+                            const debugMessagePayload = createIntentDebugMessage(intentDebugInfo);
+                            debugMessagePayload.text = "Intent Detection Debug Info";
+                            debugMessagePayload.thread_ts = replyTarget;
+                            debugMessagePayload.channel = channelId;
+                            await slack.chat.postMessage(debugMessagePayload);
+                        } catch (debugError) {
+                            console.error("[Msg Handler] Error posting intent debug message:", debugError);
+                        }
+                        break;
+                    case 'github_release_info':
+                        console.log(`[Msg Handler] Routing to 'github_release_info' handler.`);
+                        intentHandled = await handleGithubReleaseInfoIntent(intentContext);
+                        
+                        // Update debug info
+                        intentDebugInfo.intentImplemented = true;
+                        intentDebugInfo.finalWorkspace = githubWorkspaceSlug || fallbackWorkspace;
+                        
+                        // Post debug message
+                        try {
+                            const debugMessagePayload = createIntentDebugMessage(intentDebugInfo);
+                            debugMessagePayload.text = "Intent Detection Debug Info";
+                            debugMessagePayload.thread_ts = replyTarget;
+                            debugMessagePayload.channel = channelId;
+                            await slack.chat.postMessage(debugMessagePayload);
+                        } catch (debugError) {
+                            console.error("[Msg Handler] Error posting intent debug message:", debugError);
+                        }
+                        break;
+                    case 'github_pr_review':
+                        console.log(`[Msg Handler] Routing to 'github_pr_review' handler.`);
+                        intentHandled = await handleGithubPrReviewIntent(intentContext);
+                        
+                        // Update debug info
+                        intentDebugInfo.intentImplemented = true;
+                        intentDebugInfo.finalWorkspace = githubWorkspaceSlug || fallbackWorkspace;
+                        
+                        // Post debug message
+                        try {
+                            const debugMessagePayload = createIntentDebugMessage(intentDebugInfo);
+                            debugMessagePayload.text = "Intent Detection Debug Info";
+                            debugMessagePayload.thread_ts = replyTarget;
+                            debugMessagePayload.channel = channelId;
+                            await slack.chat.postMessage(debugMessagePayload);
+                        } catch (debugError) {
+                            console.error("[Msg Handler] Error posting intent debug message:", debugError);
+                        }
+                        break;
+                    case 'github_issue_analysis':
+                        console.log(`[Msg Handler] Routing to 'github_issue_analysis' handler.`);
+                        intentHandled = await handleGithubIssueAnalysisIntent(intentContext);
+                        
+                        // Update debug info
+                        intentDebugInfo.intentImplemented = true;
+                        intentDebugInfo.finalWorkspace = githubWorkspaceSlug || fallbackWorkspace;
+                        
+                        // Post debug message
+                        try {
+                            const debugMessagePayload = createIntentDebugMessage(intentDebugInfo);
+                            debugMessagePayload.text = "Intent Detection Debug Info";
+                            debugMessagePayload.thread_ts = replyTarget;
+                            debugMessagePayload.channel = channelId;
+                            await slack.chat.postMessage(debugMessagePayload);
+                        } catch (debugError) {
+                            console.error("[Msg Handler] Error posting intent debug message:", debugError);
+                        }
+                        break;
+                    case 'github_api_query':
+                        console.log(`[Msg Handler] Routing to 'github_api_query' handler.`);
+                        intentHandled = await handleGithubApiQueryIntent(intentContext);
+                        
+                        // Update debug info
+                        intentDebugInfo.intentImplemented = true;
+                        intentDebugInfo.finalWorkspace = githubWorkspaceSlug || fallbackWorkspace;
                         
                         // Post debug message
                         try {

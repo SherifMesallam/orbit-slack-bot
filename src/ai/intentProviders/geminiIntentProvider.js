@@ -83,6 +83,18 @@ ${availableIntents.map((intent, index) => {
         case "greeting":
             description = "Simple greetings, introductions, or conversation starters.";
             break;
+        case "github_release_info":
+            description = "Queries about the latest release for a repository or add-on.";
+            break;
+        case "github_pr_review":
+            description = "Requests to review or summarize a pull request.";
+            break; 
+        case "github_issue_analysis":
+            description = "Requests to analyze, summarize, or explain a GitHub issue.";
+            break;
+        case "github_api_query":
+            description = "Natural language requests to query the GitHub API.";
+            break;
         default:
             description = "Category for this intent type.";
     }

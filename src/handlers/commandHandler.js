@@ -507,4 +507,361 @@ export async function handleGreetingIntent(intentContext) {
     }
 }
 
+/**
+ * Handles the github_release_info intent detected by intent detection.
+ * Extracts repository information from the query and calls handleReleaseInfoCommand.
+ * @param {object} intentContext - The context object for this intent.
+ * @returns {Promise<boolean>} - True if handled successfully.
+ */
+export async function handleGithubReleaseInfoIntent(intentContext) {
+    const { 
+        query,
+        slack, 
+        channelId, 
+        replyTarget, 
+        thinkingMessageTs,
+        octokit,
+        intentResult 
+    } = intentContext;
+    
+    console.log(`[CommandHandler] Handling github_release_info intent for query: "${query}"`);
+    
+    try {
+        // Extract repository name from the query
+        // Look for patterns like "latest for gravityforms" or "latest release of paypal" or just "gravityforms release"
+        const repoPatterns = [
+            /latest(?:\s+for|\s+release\s+of|\s+version\s+of|\s+of)?\s+([a-zA-Z0-9._-]+)/i,
+            /([a-zA-Z0-9._-]+)\s+(?:release|version)/i,
+            /what's\s+new\s+in\s+([a-zA-Z0-9._-]+)/i
+        ];
+        
+        let repoIdentifier = null;
+        for (const pattern of repoPatterns) {
+            const match = query.match(pattern);
+            if (match && match[1]) {
+                repoIdentifier = match[1].trim();
+                break;
+            }
+        }
+        
+        // If no repo found, use a fallback approach - just extract any word that might be a repo name
+        if (!repoIdentifier) {
+            const words = query.split(/\s+/);
+            // Check if any word matches common add-on names or keywords
+            const potentialRepos = ['gravityforms', 'stripe', 'paypal', 'square', 'flow', 'packages'];
+            for (const word of words) {
+                if (potentialRepos.some(repo => word.toLowerCase().includes(repo.toLowerCase()))) {
+                    repoIdentifier = word;
+                    break;
+                }
+            }
+        }
+        
+        if (!repoIdentifier) {
+            await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { 
+                text: "I couldn't determine which repository you're asking about. Please specify an add-on name or repository." 
+            });
+            return true;
+        }
+        
+        console.log(`[CommandHandler] Extracted repo identifier: ${repoIdentifier}`);
+        
+        // Call the existing handler
+        return await handleReleaseInfoCommand(
+            repoIdentifier, 
+            replyTarget, 
+            slack, 
+            octokit, 
+            thinkingMessageTs, 
+            channelId
+        );
+    } catch (error) {
+        console.error(`[CommandHandler] Error handling github_release_info intent:`, error);
+        await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { 
+            text: `❌ Error processing release info: ${error.message}` 
+        });
+        return true;
+    }
+}
+
+/**
+ * Handles the github_pr_review intent detected by intent detection.
+ * Extracts PR information from the query and calls handlePrReviewCommand.
+ * @param {object} intentContext - The context object for this intent.
+ * @returns {Promise<boolean>} - True if handled successfully.
+ */
+export async function handleGithubPrReviewIntent(intentContext) {
+    const { 
+        query,
+        slack, 
+        channelId, 
+        replyTarget, 
+        thinkingMessageTs,
+        octokit,
+        intentResult 
+    } = intentContext;
+    
+    console.log(`[CommandHandler] Handling github_pr_review intent for query: "${query}"`);
+    
+    try {
+        // Extract PR information from the query
+        // Look for patterns like "review PR 123" or "review pull request rocketgenius/gravityforms#456"
+        const prPatterns = [
+            /(?:review|analyze|summarize)\s+(?:PR|pull\s+request)\s+(?:for\s+)?(?:([a-zA-Z0-9._-]+)\/([a-zA-Z0-9._-]+)#(\d+)|(\d+))/i,
+            /(?:PR|pull\s+request)\s+(?:([a-zA-Z0-9._-]+)\/([a-zA-Z0-9._-]+)#(\d+)|(\d+))/i
+        ];
+        
+        let owner = null;
+        let repo = null;
+        let prNumber = null;
+        
+        for (const pattern of prPatterns) {
+            const match = query.match(pattern);
+            if (match) {
+                if (match[3]) {
+                    // We matched the owner/repo#number format
+                    owner = match[1];
+                    repo = match[2];
+                    prNumber = parseInt(match[3], 10);
+                } else if (match[4]) {
+                    // We only matched a PR number
+                    prNumber = parseInt(match[4], 10);
+                }
+                break;
+            }
+        }
+        
+        // If we only have a PR number, determine owner/repo 
+        if (prNumber && !owner) {
+            // Default to GITHUB_OWNER and extract repo from query or use a default
+            owner = GITHUB_OWNER;
+            
+            // Try to find repo name in the query
+            const repoPattern = /(?:in|for|from)\s+([a-zA-Z0-9._-]+)(?:\s+|$)/i;
+            const repoMatch = query.match(repoPattern);
+            if (repoMatch && repoMatch[1]) {
+                repo = repoMatch[1].trim();
+            } else {
+                // Default to gravityforms if no repo specified
+                repo = 'gravityforms';
+            }
+        }
+        
+        if (!owner || !repo || !prNumber) {
+            await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { 
+                text: "I couldn't determine the PR details. Please specify using format: owner/repo#number or PR number" 
+            });
+            return true;
+        }
+        
+        // Determine workspace to use
+        // Try to extract from query, otherwise use default
+        let workspaceSlug = githubWorkspaceSlug;
+        const workspacePattern = /#([a-zA-Z0-9._-]+)/i;
+        const workspaceMatch = query.match(workspacePattern);
+        if (workspaceMatch && workspaceMatch[1]) {
+            workspaceSlug = workspaceMatch[1].trim();
+        }
+        
+        console.log(`[CommandHandler] Extracted PR: ${owner}/${repo}#${prNumber}, Workspace: ${workspaceSlug}`);
+        
+        // Call the existing handler
+        return await handlePrReviewCommand(
+            owner,
+            repo,
+            prNumber,
+            workspaceSlug,
+            replyTarget,
+            channelId,
+            slack,
+            octokit,
+            thinkingMessageTs
+        );
+    } catch (error) {
+        console.error(`[CommandHandler] Error handling github_pr_review intent:`, error);
+        await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { 
+            text: `❌ Error processing PR review: ${error.message}` 
+        });
+        return true;
+    }
+}
+
+/**
+ * Handles the github_issue_analysis intent detected by intent detection.
+ * Extracts issue information from the query and calls handleIssueAnalysisCommand.
+ * @param {object} intentContext - The context object for this intent.
+ * @returns {Promise<boolean>} - True if handled successfully.
+ */
+export async function handleGithubIssueAnalysisIntent(intentContext) {
+    const { 
+        query,
+        slack, 
+        channelId, 
+        replyTarget, 
+        thinkingMessageTs,
+        octokit,
+        intentResult 
+    } = intentContext;
+    
+    console.log(`[CommandHandler] Handling github_issue_analysis intent for query: "${query}"`);
+    
+    try {
+        // Extract issue information from the query
+        // Look for patterns like "analyze issue 123" or "explain issue rocketgenius/gravityforms#456"
+        const issuePatterns = [
+            /(?:analyze|explain|summarize)\s+(?:issue|ticket)\s+(?:([a-zA-Z0-9._-]+)\/([a-zA-Z0-9._-]+)#(\d+)|#?(\d+))/i,
+            /(?:issue|ticket)\s+(?:([a-zA-Z0-9._-]+)\/([a-zA-Z0-9._-]+)#(\d+)|#?(\d+))/i
+        ];
+        
+        let owner = null;
+        let repo = null;
+        let issueNumber = null;
+        
+        for (const pattern of issuePatterns) {
+            const match = query.match(pattern);
+            if (match) {
+                if (match[3]) {
+                    // We matched the owner/repo#number format
+                    owner = match[1];
+                    repo = match[2];
+                    issueNumber = parseInt(match[3], 10);
+                } else if (match[4]) {
+                    // We only matched an issue number
+                    issueNumber = parseInt(match[4], 10);
+                }
+                break;
+            }
+        }
+        
+        // If we only have an issue number, determine owner/repo 
+        if (issueNumber && !owner) {
+            // Default to GITHUB_OWNER and extract repo from query or use a default
+            owner = GITHUB_OWNER;
+            
+            // Try to find repo name in the query
+            const repoPattern = /(?:in|for|from)\s+([a-zA-Z0-9._-]+)(?:\s+|$)/i;
+            const repoMatch = query.match(repoPattern);
+            if (repoMatch && repoMatch[1]) {
+                repo = repoMatch[1].trim();
+            } else {
+                // Default to backlog if no repo specified
+                repo = 'backlog';
+            }
+        }
+        
+        if (!owner || !repo || !issueNumber) {
+            await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { 
+                text: "I couldn't determine the issue details. Please specify using format: owner/repo#number or issue number" 
+            });
+            return true;
+        }
+        
+        // Determine workspace to use from intentResult or fallback
+        let workspaceSlug = intentResult?.suggestedWorkspace || githubWorkspaceSlug;
+        
+        // Override with explicit workspace if specified in query
+        const workspacePattern = /#([a-zA-Z0-9._-]+)/i;
+        const workspaceMatch = query.match(workspacePattern);
+        if (workspaceMatch && workspaceMatch[1]) {
+            workspaceSlug = workspaceMatch[1].trim();
+        }
+        
+        // Extract user prompt - anything after the issue identification that isn't a workspace
+        let userPrompt = null;
+        // Remove the issue identification part
+        let promptText = query.replace(/(?:analyze|explain|summarize)\s+(?:issue|ticket)\s+(?:([a-zA-Z0-9._-]+)\/([a-zA-Z0-9._-]+)#(\d+)|#?(\d+))/i, '').trim();
+        // Remove any workspace specification
+        promptText = promptText.replace(/#([a-zA-Z0-9._-]+)/g, '').trim();
+        
+        if (promptText) {
+            userPrompt = promptText;
+        }
+        
+        console.log(`[CommandHandler] Extracted Issue: ${owner}/${repo}#${issueNumber}, Workspace: ${workspaceSlug}, Prompt: ${userPrompt || 'None'}`);
+        
+        // Call the existing handler
+        return await handleIssueAnalysisCommand(
+            owner,
+            repo,
+            issueNumber,
+            userPrompt,
+            replyTarget,
+            channelId,
+            slack,
+            octokit,
+            thinkingMessageTs,
+            workspaceSlug,
+            null // anythingLLMThreadSlug - create new for this request
+        );
+    } catch (error) {
+        console.error(`[CommandHandler] Error handling github_issue_analysis intent:`, error);
+        await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { 
+            text: `❌ Error analyzing issue: ${error.message}` 
+        });
+        return true;
+    }
+}
+
+/**
+ * Handles the github_api_query intent detected by intent detection.
+ * Passes the natural language query to handleGithubApiCommand.
+ * @param {object} intentContext - The context object for this intent.
+ * @returns {Promise<boolean>} - True if handled successfully.
+ */
+export async function handleGithubApiQueryIntent(intentContext) {
+    const { 
+        query,
+        slack, 
+        channelId, 
+        replyTarget, 
+        thinkingMessageTs,
+        intentResult 
+    } = intentContext;
+    
+    console.log(`[CommandHandler] Handling github_api_query intent for query: "${query}"`);
+    
+    try {
+        // Clean up the query to remove any intent prefixes
+        let apiQuery = query;
+        const prefixes = [
+            /^api\s+/i,
+            /^github\s+api\s+/i,
+            /^call\s+api\s+/i,
+            /^query\s+api\s+/i
+        ];
+        
+        for (const prefix of prefixes) {
+            apiQuery = apiQuery.replace(prefix, '');
+        }
+        
+        apiQuery = apiQuery.trim();
+        
+        if (!apiQuery) {
+            await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { 
+                text: "I couldn't determine what API query you want to make. Please provide more details." 
+            });
+            return true;
+        }
+        
+        console.log(`[CommandHandler] Extracted API query: "${apiQuery}"`);
+        
+        // Call the existing handler
+        return await handleGithubApiCommand(
+            apiQuery,
+            replyTarget,
+            channelId,
+            slack,
+            thinkingMessageTs,
+            githubWorkspaceSlug,
+            formatterWorkspaceSlug
+        );
+    } catch (error) {
+        console.error(`[CommandHandler] Error handling github_api_query intent:`, error);
+        await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { 
+            text: `❌ Error processing API query: ${error.message}` 
+        });
+        return true;
+    }
+}
+
 console.log("[Command Handler] Initialized.");
