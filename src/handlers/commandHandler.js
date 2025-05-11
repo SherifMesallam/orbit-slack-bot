@@ -24,17 +24,23 @@ async function updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, chan
     // Await the promise *only when needed*
     let ts = null;
     try {
+        console.log(`[CH Util] updateOrDeleteThinkingMessage called with updateArgs: ${updateArgs ? 'update' : 'delete'}`);
         ts = await thinkingMessagePromise; // Get the TS
+        console.log(`[CH Util] Thinking message promise resolved to TS: ${ts || 'null'}`);
+        
         if (!ts) {
-            // console.warn("[CH Util] No thinking message TS resolved."); // Less noisy
+            console.log(`[CH Util] No thinking message TS resolved, nothing to update/delete.`);
             return;
         }
+        
         if (updateArgs) {
+            console.log(`[CH Util] Attempting to update message ${ts} with text: ${updateArgs.text || '(no text)'}`);
             await slack.chat.update({ channel, ts, ...updateArgs });
-             console.log(`[CH Util] Updated thinking message ${ts}.`);
+            console.log(`[CH Util] Updated thinking message ${ts}.`);
         } else {
+            console.log(`[CH Util] Attempting to delete message ${ts}`);
             await slack.chat.delete({ channel, ts });
-             console.log(`[CH Util] Deleted thinking message ${ts}.`);
+            console.log(`[CH Util] Deleted thinking message ${ts}.`);
         }
     } catch (error) {
         console.warn(`[CH Util] Failed to ${updateArgs ? 'update' : 'delete'} thinking message ${ts || '?'}:`, error.data?.error || error.message);
@@ -147,13 +153,51 @@ export async function handleSlashCommand(payload, slack, octokit) {
                 break;
             }
             case '/gh-review': {
-                const reviewPattern = /([\w.-]+)\/([\w.-]+)#(\d+)\s+#([\w-]+)/i;
+                const reviewPattern = /([\w.-]+)\/([\w.-]+)#(\d+)(?:\s+#([\w-]+))?/i;
                 const match = commandArgs.match(reviewPattern);
                 if (match) {
                     const [_, owner, repo, pr_number, workspace_slug] = match;
-                    commandHandled = await handlePrReviewCommand(owner, repo, parseInt(pr_number), workspace_slug, channel_id, channel_id, slack, octokit, thinkingPromise);
+                    
+                    // Determine workspace slug from repo if not explicitly specified
+                    let finalWorkspaceSlug = workspace_slug;
+                    
+                    if (!finalWorkspaceSlug) {
+                        // Use repository name as the workspace slug
+                        finalWorkspaceSlug = repo;
+                        
+                        // Check if repo has a gravityforms prefix and strip it if needed
+                        if (repo.startsWith("gravityforms") && repo !== "gravityforms") {
+                            // For repositories like "gravityformsstripe", use "stripe" as workspace
+                            const repoWithoutPrefix = repo.replace("gravityforms", "");
+                            if (repoWithoutPrefix.length > 0) {
+                                finalWorkspaceSlug = repoWithoutPrefix;
+                            }
+                        }
+                        
+                        // Fallback to githubWorkspaceSlug if needed
+                        if (!finalWorkspaceSlug) {
+                            finalWorkspaceSlug = githubWorkspaceSlug;
+                        }
+                        
+                        console.log(`[Slash Command Handler] Automatically using workspace from repo: ${finalWorkspaceSlug}`);
+                    }
+                    
+                    commandHandled = await handlePrReviewCommand(
+                        owner, 
+                        repo, 
+                        parseInt(pr_number), 
+                        finalWorkspaceSlug, 
+                        channel_id, 
+                        channel_id, 
+                        slack, 
+                        octokit, 
+                        thinkingPromise
+                    );
                 } else {
-                    await slack.chat.postMessage({ channel: channel_id, text: `❌ Usage: \`/gh-review owner/repo#number #workspace\`` });
+                    await slack.chat.postMessage({ 
+                        channel: channel_id, 
+                        text: `❌ Usage: \`/gh-review owner/repo#number [#optional-workspace]\`` 
+                    });
                     commandHandled = true; // Error reported
                 }
                 break;
@@ -290,15 +334,30 @@ export async function handleReleaseInfoCommand(repoIdentifier, replyTarget, slac
  */
 export async function handlePrReviewCommand(owner, repo, prNumber, workspaceSlug, replyTarget, channel, slack, octokit, thinkingMessagePromise) {
     console.log(`[CH - PR Review] Handling for ${owner}/${repo}#${prNumber} in workspace ${workspaceSlug}`);
-    if (!githubToken || !octokit) { await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: `❌ GitHub not configured.` }); return true; }
+    console.log(`[CH - PR Review] Debug - Parameters: replyTarget=${replyTarget}, channel=${channel}, slack=${!!slack}, octokit=${!!octokit}, thinkingMessagePromise=${!!thinkingMessagePromise}`);
+    
+    if (!githubToken || !octokit) { 
+        console.log(`[CH - PR Review] Debug - Missing GitHub token or octokit`);
+        await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: `❌ GitHub not configured.` }); 
+        return true; 
+    }
 
     try {
+        console.log(`[CH - PR Review] Debug - Updating thinking message`);
         await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: `:robot_face: Fetching PR ${owner}/${repo}#${prNumber}...` });
+        
+        console.log(`[CH - PR Review] Debug - About to call getPrDetailsForReview`);
         const prDetails = await getPrDetailsForReview(owner, repo, prNumber); // Uses service function
+        console.log(`[CH - PR Review] Debug - getPrDetailsForReview returned: ${!!prDetails}`);
 
-        if (!prDetails) { await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: `❌ Couldn't fetch PR ${owner}/${repo}#${prNumber}.` }); return true; }
+        if (!prDetails) { 
+            console.log(`[CH - PR Review] Debug - No PR details found`);
+            await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: `❌ Couldn't fetch PR ${owner}/${repo}#${prNumber}.` }); 
+            return true; 
+        }
 
         // --- Construct PR context (limited size) ---
+        console.log(`[CH - PR Review] Debug - Building PR context`);
         let prContext = `**PR:** ${owner}/${repo}#${prNumber}\n**Title:** ${prDetails.title}\n**Desc:**\n${(prDetails.body || '').substring(0, 1000)}\n\n**Changes:**\n`;
         /* ... Full file diff formatting logic ... */
         const MAX_DIFF_SIZE = 3000; const MAX_TOTAL_DIFF_SIZE = 20000; let currentTotalDiffSize = 0; let diffTruncatedOverall = false;
@@ -307,19 +366,40 @@ export async function handlePrReviewCommand(owner, repo, prNumber, workspaceSlug
         // --- End Context ---
 
         const reviewPrompt = `Review PR ${owner}/${repo}#${prNumber}. Focus: quality, bugs, security, best practices. Provide actionable feedback. Context (may be truncated):\n${prContext}`;
+        console.log(`[CH - PR Review] Debug - About to update thinking message before LLM call`);
         await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: `:brain: Asking LLM in \`${workspaceSlug}\` to review...` });
 
+        console.log(`[CH - PR Review] Debug - About to call queryLlm with workspace=${workspaceSlug}`);
         const analysisResponse = await queryLlm(workspaceSlug, null, reviewPrompt, 'chat'); // Uses llmService function
-        if (!analysisResponse) throw new Error('LLM review analysis empty.');
+        console.log(`[CH - PR Review] Debug - queryLlm returned response length: ${analysisResponse ? analysisResponse.length : 0}`);
+        
+        if (!analysisResponse) {
+            console.log(`[CH - PR Review] Debug - No analysis response from LLM`);
+            throw new Error('LLM review analysis empty.');
+        }
 
+        console.log(`[CH - PR Review] Debug - About to delete thinking message`);
         await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, null); // Delete thinking
 
+        console.log(`[CH - PR Review] Debug - About to split response into chunks`);
         const responseChunks = splitMessageIntoChunks(analysisResponse);
+        console.log(`[CH - PR Review] Debug - Split response into ${responseChunks.length} chunks`);
+        
         for (let i = 0; i < responseChunks.length; i++) { /* ... post chunks ... */
-             const chunk = responseChunks[i]; const block = markdownToRichTextBlock(chunk);
-             await slack.chat.postMessage({ channel, thread_ts: replyTarget, text: `PR Review ${i + 1}`, ...(block ? { blocks: [block] } : { text: chunk }) });
+             const chunk = responseChunks[i]; 
+             console.log(`[CH - PR Review] Debug - Processing chunk ${i+1}/${responseChunks.length}, length: ${chunk.length}`);
+             const block = markdownToRichTextBlock(chunk);
+             console.log(`[CH - PR Review] Debug - About to post message with chunk ${i+1}`);
+             await slack.chat.postMessage({ 
+                channel, 
+                thread_ts: replyTarget, 
+                text: `PR Review ${i + 1}`, 
+                ...(block ? { blocks: [block] } : { text: chunk }) 
+             });
+             console.log(`[CH - PR Review] Debug - Posted chunk ${i+1}`);
              if (responseChunks.length > 1 && i < responseChunks.length - 1) await new Promise(r => setTimeout(r, 500));
         }
+        console.log(`[CH - PR Review] Debug - All chunks posted successfully`);
         return true;
 
     } catch (error) {
@@ -524,6 +604,29 @@ export async function handleGithubReleaseInfoIntent(intentContext) {
         intentResult 
     } = intentContext;
     
+    // Validate that we have the required components
+    if (!slack || !channelId) {
+        console.error(`[CommandHandler] Missing required parameters: slack=${!!slack}, channelId=${!!channelId}`);
+        return false;
+    }
+    
+    // Create a thinking message if one wasn't provided
+    let localThinkingMessageTs = thinkingMessageTs;
+    if (!localThinkingMessageTs) {
+        try {
+            console.log(`[CommandHandler] No thinking message found, creating one for github_release_info`);
+            const thinkingMsg = await slack.chat.postMessage({ 
+                channel: channelId, 
+                thread_ts: replyTarget, 
+                text: ":hourglass_flowing_sand: Processing release info request..." 
+            });
+            localThinkingMessageTs = thinkingMsg?.ts;
+        } catch (err) {
+            console.error("[CommandHandler] Failed to post thinking message:", err.data?.error || err.message);
+            // Continue without thinking message
+        }
+    }
+    
     console.log(`[CommandHandler] Handling github_release_info intent for query: "${query}"`);
     
     try {
@@ -543,6 +646,7 @@ export async function handleGithubReleaseInfoIntent(intentContext) {
             const match = query.match(pattern);
             if (match && match[1]) {
                 repoIdentifier = match[1].trim();
+                console.log(`[CommandHandler] Matched repo pattern: ${repoIdentifier}`);
                 break;
             }
         }
@@ -554,12 +658,14 @@ export async function handleGithubReleaseInfoIntent(intentContext) {
                 query.toLowerCase().includes("gravity forms") || 
                 query.toLowerCase().includes("gravityforms")) {
                 repoIdentifier = "gravityforms";
+                console.log(`[CommandHandler] Found core reference: ${repoIdentifier}`);
             } 
             else if (query.toLowerCase().includes("latest version") || 
                      query.toLowerCase().includes("latest release") || 
                      query.toLowerCase().includes("most recent update")) {
                 // Default to gravityforms for general "latest" queries
                 repoIdentifier = "gravityforms";
+                console.log(`[CommandHandler] Found general latest reference: ${repoIdentifier}`);
             }
             else {
                 // Check for common add-on names
@@ -576,6 +682,7 @@ export async function handleGithubReleaseInfoIntent(intentContext) {
                 for (const {pattern, repo} of addonPatterns) {
                     if (pattern.test(query)) {
                         repoIdentifier = repo;
+                        console.log(`[CommandHandler] Matched addon pattern: ${repoIdentifier}`);
                         break;
                     }
                 }
@@ -590,13 +697,15 @@ export async function handleGithubReleaseInfoIntent(intentContext) {
             for (const word of words) {
                 if (potentialRepos.some(repo => word.toLowerCase().includes(repo.toLowerCase()))) {
                     repoIdentifier = word;
+                    console.log(`[CommandHandler] Extracted potential repo from word: ${repoIdentifier}`);
                     break;
                 }
             }
         }
         
         if (!repoIdentifier) {
-            await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { 
+            console.log(`[CommandHandler] Could not determine repository from query: "${query}"`);
+            await updateOrDeleteThinkingMessage(localThinkingMessageTs, slack, channelId, { 
                 text: "I couldn't determine which repository you're asking about. Please specify an add-on name or repository." 
             });
             return true;
@@ -605,17 +714,18 @@ export async function handleGithubReleaseInfoIntent(intentContext) {
         console.log(`[CommandHandler] Extracted repo identifier: ${repoIdentifier}`);
         
         // Call the existing handler
+        console.log(`[CommandHandler] Calling handleReleaseInfoCommand with repo: ${repoIdentifier}`);
         return await handleReleaseInfoCommand(
             repoIdentifier, 
             replyTarget, 
             slack, 
             octokit, 
-            thinkingMessageTs, 
+            localThinkingMessageTs, 
             channelId
         );
     } catch (error) {
         console.error(`[CommandHandler] Error handling github_release_info intent:`, error);
-        await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { 
+        await updateOrDeleteThinkingMessage(localThinkingMessageTs, slack, channelId, { 
             text: `❌ Error processing release info: ${error.message}` 
         });
         return true;
@@ -639,7 +749,38 @@ export async function handleGithubPrReviewIntent(intentContext) {
         intentResult 
     } = intentContext;
     
+    // Validate that we have the required components
+    if (!slack || !channelId) {
+        console.error(`[CommandHandler] Missing required parameters: slack=${!!slack}, channelId=${!!channelId}`);
+        return false;
+    }
+    
+    // Create a thinking message if one wasn't provided
+    let localThinkingMessageTs = thinkingMessageTs;
+    if (!localThinkingMessageTs) {
+        try {
+            console.log(`[CommandHandler] No thinking message found, creating one for github_pr_review`);
+            const thinkingMsg = await slack.chat.postMessage({ 
+                channel: channelId, 
+                thread_ts: replyTarget, 
+                text: ":hourglass_flowing_sand: Processing PR review request..." 
+            });
+            localThinkingMessageTs = thinkingMsg?.ts;
+        } catch (err) {
+            console.error("[CommandHandler] Failed to post thinking message:", err.data?.error || err.message);
+            // Continue without thinking message
+        }
+    }
+    
     console.log(`[CommandHandler] Handling github_pr_review intent for query: "${query}"`);
+    console.log(`[CommandHandler] Debug - Received context:`, JSON.stringify({
+        query, 
+        channelId, 
+        replyTarget: replyTarget ? 'set' : 'undefined',
+        thinkingMessageTs: thinkingMessageTs ? 'set' : 'undefined',
+        octokit: octokit ? 'set' : 'undefined',
+        intentResult: intentResult ? 'set' : 'undefined'
+    }));
     
     try {
         // Extract PR information from the query
@@ -656,6 +797,7 @@ export async function handleGithubPrReviewIntent(intentContext) {
         for (const pattern of prPatterns) {
             const match = query.match(pattern);
             if (match) {
+                console.log(`[CommandHandler] Debug - PR pattern matched:`, JSON.stringify(match));
                 if (match[3]) {
                     // We matched the owner/repo#number format
                     owner = match[1];
@@ -671,6 +813,7 @@ export async function handleGithubPrReviewIntent(intentContext) {
         
         // If we only have a PR number, determine owner/repo 
         if (prNumber && !owner) {
+            console.log(`[CommandHandler] Debug - Only PR number found: ${prNumber}, determining owner/repo`);
             // Default to GITHUB_OWNER and extract repo from query or use a default
             owner = GITHUB_OWNER;
             
@@ -679,32 +822,55 @@ export async function handleGithubPrReviewIntent(intentContext) {
             const repoMatch = query.match(repoPattern);
             if (repoMatch && repoMatch[1]) {
                 repo = repoMatch[1].trim();
+                console.log(`[CommandHandler] Debug - Found repo in query: ${repo}`);
             } else {
                 // Default to gravityforms if no repo specified
                 repo = 'gravityforms';
+                console.log(`[CommandHandler] Debug - Using default repo: ${repo}`);
             }
         }
         
         if (!owner || !repo || !prNumber) {
-            await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { 
+            console.log(`[CommandHandler] Debug - Missing required information: owner=${owner}, repo=${repo}, prNumber=${prNumber}`);
+            await updateOrDeleteThinkingMessage(localThinkingMessageTs, slack, channelId, { 
                 text: "I couldn't determine the PR details. Please specify using format: owner/repo#number or PR number" 
             });
             return true;
         }
         
-        // Determine workspace to use
-        // Try to extract from query, otherwise use default
-        let workspaceSlug = githubWorkspaceSlug;
+        // NEW: Use repository name as the workspace slug
+        // This change automatically uses the repository name as the workspace
+        let workspaceSlug = repo;
+        
+        // Check if repo has a gravityforms prefix and strip it if needed
+        if (repo.startsWith("gravityforms") && repo !== "gravityforms") {
+            // For repositories like "gravityformsstripe", use "stripe" as workspace
+            const repoWithoutPrefix = repo.replace("gravityforms", "");
+            if (repoWithoutPrefix.length > 0) {
+                workspaceSlug = repoWithoutPrefix;
+                console.log(`[CommandHandler] Debug - Extracted workspace from repo: ${workspaceSlug}`);
+            }
+        }
+        
+        // Override with explicit workspace if specified (maintaining backward compatibility)
         const workspacePattern = /#([a-zA-Z0-9._-]+)/i;
         const workspaceMatch = query.match(workspacePattern);
         if (workspaceMatch && workspaceMatch[1]) {
             workspaceSlug = workspaceMatch[1].trim();
+            console.log(`[CommandHandler] Explicit workspace specified in query: ${workspaceSlug}`);
         }
         
-        console.log(`[CommandHandler] Extracted PR: ${owner}/${repo}#${prNumber}, Workspace: ${workspaceSlug}`);
+        // Fallback to githubWorkspaceSlug if none of the above are available
+        if (!workspaceSlug) {
+            workspaceSlug = githubWorkspaceSlug;
+            console.log(`[CommandHandler] Using default GitHub workspace: ${workspaceSlug}`);
+        }
+        
+        console.log(`[CommandHandler] Extracted PR: ${owner}/${repo}#${prNumber}, Using workspace: ${workspaceSlug}`);
         
         // Call the existing handler
-        return await handlePrReviewCommand(
+        console.log(`[CommandHandler] Debug - About to call handlePrReviewCommand`);
+        const result = await handlePrReviewCommand(
             owner,
             repo,
             prNumber,
@@ -713,11 +879,13 @@ export async function handleGithubPrReviewIntent(intentContext) {
             channelId,
             slack,
             octokit,
-            thinkingMessageTs
+            localThinkingMessageTs
         );
+        console.log(`[CommandHandler] Debug - handlePrReviewCommand returned: ${result}`);
+        return result;
     } catch (error) {
         console.error(`[CommandHandler] Error handling github_pr_review intent:`, error);
-        await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { 
+        await updateOrDeleteThinkingMessage(localThinkingMessageTs, slack, channelId, { 
             text: `❌ Error processing PR review: ${error.message}` 
         });
         return true;
