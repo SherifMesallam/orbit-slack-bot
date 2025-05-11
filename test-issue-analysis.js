@@ -152,6 +152,10 @@ async function runTests() {
     try {
       console.log(`Starting with workspace: ${test.initialWorkspace}`);
       
+      // Use the intent detection engine to analyze the issue content
+      const { detectIntentAndWorkspace } = await import('../ai/intentDetectionService.js');
+      const { getWorkspaces } = await import('../services/workspaceService.js');
+      
       // Run the handler
       await handleIssueAnalysisCommand(
         test.owner,

@@ -2,7 +2,7 @@
 // Test script for workspace detection in issue analysis
 
 import { detectIntentAndWorkspace } from './src/ai/intentDetectionService.js';
-import { getWorkspaces } from './src/services/llmService.js';
+import { getWorkspaces } from './src/services/workspaceService.js';
 
 // Test cases simulating different issue contents
 const testCases = [

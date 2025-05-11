@@ -453,7 +453,7 @@ export async function handleIssueAnalysisCommand(owner, repo, issueNumber, userP
             try {
                 // Use the intent detection engine to analyze the issue content
                 const { detectIntentAndWorkspace } = await import('../ai/intentDetectionService.js');
-                const { getWorkspaces } = await import('../services/llmService.js');
+                const { getWorkspaces } = await import('../services/workspaceService.js');
                 
                 // Get available workspaces
                 const workspaces = await getWorkspaces(true);
@@ -1284,7 +1284,7 @@ export async function handleIntentDetectionDebugCommand(query, channelId, thread
 
         // Import from our service
         const { detectIntentAndWorkspace } = await import('../ai/intentDetectionService.js');
-        const { getWorkspaces } = await import('../services/llmService.js');
+        const { getWorkspaces } = await import('../services/workspaceService.js');
         
         // Get available workspaces
         const workspaces = await getWorkspaces();
