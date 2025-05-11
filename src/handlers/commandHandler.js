@@ -444,6 +444,56 @@ export async function handleIssueAnalysisCommand(owner, repo, issueNumber, userP
         if (issueDetails.comments && issueDetails.comments.length > 0) { /* ... format comments ... */ issueContext += `**Recent Comments (${Math.min(issueDetails.comments.length, MAX_COMMENTS_ISSUE)}):**\n`; issueDetails.comments.slice(-MAX_COMMENTS_ISSUE).forEach(c => { issueContext += `*${c.user}:* ${(c.body || '').substring(0, MAX_COMMENT_LENGTH)}\n---\n`; }); }
         // --- End Context ---
 
+        // Only try to adjust workspace if we're using a generic workspace like "github" or "all"
+        if (workspaceSlugForLlm === 'github' || workspaceSlugForLlm === 'all') {
+            await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { 
+                text: `:detective: Analyzing issue content to determine best workspace...` 
+            });
+            
+            try {
+                // Use the intent detection engine to analyze the issue content
+                const { detectIntentAndWorkspace } = await import('../ai/intentDetectionService.js');
+                const { getWorkspaces } = await import('../services/llmService.js');
+                
+                // Get available workspaces
+                const workspaces = await getWorkspaces(true);
+                const workspaceNames = workspaces?.map(w => w.slug) || [];
+                
+                // Create a query for the intent detection that's essentially the issue content
+                const intentQuery = `Issue about: ${issueDetails.title} - ${(issueDetails.body || '').substring(0, 1000)}`;
+                console.log(`[CH - Issue Analysis] Running intent detection for workspace selection with query length: ${intentQuery.length}`);
+                
+                // Detect intent & workspace suggestion
+                const intentResult = await detectIntentAndWorkspace(intentQuery, [], workspaceNames);
+                
+                if (intentResult && intentResult.suggestedWorkspace && 
+                    intentResult.suggestedWorkspace !== workspaceSlugForLlm &&
+                    workspaceNames.includes(intentResult.suggestedWorkspace)) {
+                    
+                    console.log(`[CH - Issue Analysis] Intent detection suggests workspace "${intentResult.suggestedWorkspace}" with confidence ${intentResult.confidence}`);
+                    
+                    // If confidence is reasonable and it found a specific workspace
+                    if (intentResult.confidence >= 0.6 && 
+                        intentResult.suggestedWorkspace !== 'github' && 
+                        intentResult.suggestedWorkspace !== 'all') {
+                        
+                        const originalWorkspace = workspaceSlugForLlm;
+                        workspaceSlugForLlm = intentResult.suggestedWorkspace;
+                        
+                        console.log(`[CH - Issue Analysis] Switching workspace from "${originalWorkspace}" to "${workspaceSlugForLlm}" based on intent detection`);
+                        
+                        // Update thinking message to inform about the workspace change
+                        await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { 
+                            text: `:mag: Intent detection suggests using "${workspaceSlugForLlm}" workspace for this issue. Switching...` 
+                        });
+                    }
+                }
+            } catch (intentError) {
+                console.error(`[CH - Issue Analysis] Error in intent detection for workspace selection:`, intentError);
+                // Continue with original workspace if there's an error
+            }
+        }
+
         await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: `:mag: Summarizing issue #${issueNumber} using "${workspaceSlugForLlm}" workspace...` });
         const summarizePrompt = `Summarize GitHub issue ${owner}/${repo}#${issueNumber}:\n\n${issueContext}`;
         const summaryResponse = await queryLlm(workspaceSlugForLlm, anythingLLMThreadSlug, summarizePrompt); // Use provided workspace/thread
