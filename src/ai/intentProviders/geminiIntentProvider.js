@@ -53,50 +53,48 @@ export async function detectIntent(query, availableIntents = [], availableWorksp
     // --- 3. Construct Prompt ---
     // Optimized intent detection instructions
     const intentList = availableIntents.length > 0
-        ? `You must classify this query into EXACTLY ONE of these intent categories:
+        ? `You MUST classify this query into EXACTLY ONE of these intent categories AND NOTHING ELSE:
 
----------- INTENT CATEGORIES ----------
+---------- ALLOWED INTENT CATEGORIES (EXCLUSIVE LIST) ----------
 
-1. technical_question
-   Queries about code functionality, implementation details, debugging, or technical how-to.
-   Examples: "How does the merge tags system work?", "Is there a method to check if a form is conversational?", 
-   "Why does the validation fail when using conditional logic?", "How can I debug this JS error in the form editor?"
-
-2. best_practices_question
-   Queries about optimal approaches, coding standards, design patterns, or recommended ways to implement something.
-   Examples: "What's the best way to extend the form editor?", "Should I use hooks or filters for this?",
-   "What's our standard pattern for implementing new field types?", "How should I structure this new feature?"
-
-3. historical_knowledge
-   Queries about past decisions, previous discussions, or organizational memory.
-   Examples: "Didn't we discuss this issue last month?", "Why did we implement it this way originally?",
-   "Was there a PR about the notification system?", "What was our conclusion about the API rate limits?"
-
-4. bot_abilities
-   Queries about what the bot can do, access, or help with.
-   Examples: "Can you help with PR reviews?", "Do you have access to the docs repository?",
-   "Are you able to summarize issues?", "Can you explain code from private repositories?"
-
-5. docs
-   Queries about documentation, usage instructions, or explanatory content.
-   Examples: "How do I use conditional logic in forms?", "What does the gravity_form() function do?",
-   "Is there documentation for the REST API?", "How do customers use the survey add-on?"
-
-6. greeting
-   Simple greetings, introductions, or conversation starters.
-   Examples: "Hello", "Hi there", "Hey Orbit", "Good morning", "What's up?", "How are you?", 
-   "Nice to meet you", "Can you help me?"
+${availableIntents.map((intent, index) => {
+    let description = "";
+    switch(intent) {
+        case "technical_question":
+            description = "Queries about code functionality, implementation details, debugging, or technical how-to.";
+            break;
+        case "best_practices_question":
+            description = "Queries about optimal approaches, coding standards, design patterns, or recommended ways to implement something.";
+            break;
+        case "historical_knowledge":
+            description = "Queries about past decisions, previous discussions, or organizational memory.";
+            break;
+        case "bot_abilities":
+            description = "Queries about what the bot can do, access, or help with.";
+            break;
+        case "docs":
+            description = "Queries about documentation, usage instructions, or explanatory content.";
+            break;
+        case "greeting":
+            description = "Simple greetings, introductions, or conversation starters.";
+            break;
+        default:
+            description = "Category for this intent type.";
+    }
+    return `${index + 1}. ${intent}\n   ${description}`;
+}).join('\n\n')}
 
 ---------- CLASSIFICATION RULES ----------
 
-- Choose EXACTLY ONE intent that best matches the query.
+- YOU MUST ONLY USE THE INTENT CATEGORIES LISTED ABOVE. No variations or custom intents allowed.
+- Choose EXACTLY ONE intent from the list above that best matches the query.
 - If the query fits multiple categories, select the PRIMARY intent.
 - If uncertain, classify based on what the user is PRIMARILY asking for.
-- If the query doesn't fit any category well, respond with intent: null.
+- If the query doesn't fit any category well, use "technical_question" as the default.
 - Ignore formal greeting parts of queries when determining intent.
 - For simple greetings with no other content, use the "greeting" intent.
 
-Your classification should be precise and consistent.`
+Your classification must be precise and consistent, using ONLY the exact intent names listed above.`
         : 'Determine the most appropriate intent that describes the user query.';
 
     // Workspace suggestion instructions
@@ -116,10 +114,13 @@ Your task is to:
 Respond ONLY with a single, valid JSON object containing exactly three keys: "intent" (string or null), "confidence" (number between 0.0 and 1.0), and "suggestedWorkspace" (string). Do not include any other text, explanations, or markdown formatting like \`\`\`json.
 
 Example valid responses:
-{"intent": "technical_question", "confidence": 0.85, "suggestedWorkspace": all}
-{"intent": "best_practices_question", "confidence": 0.7, "suggestedWorkspace": gravityformsstipe}
-{"intent": "greeting", "confidence": 0.5, "suggestedWorkspace": gravityforms}
-{"intent": null, "confidence": 0.1, "suggestedWorkspace": gravityforms}
+{"intent": "technical_question", "confidence": 0.85, "suggestedWorkspace": "all"}
+{"intent": "best_practices_question", "confidence": 0.7, "suggestedWorkspace": "gravityformsstipe"}
+{"intent": "bot_abilities", "confidence": 0.95, "suggestedWorkspace": "all"}
+{"intent": "docs", "confidence": 0.82, "suggestedWorkspace": "gravityforms"}
+{"intent": "greeting", "confidence": 0.99, "suggestedWorkspace": "all"}
+{"intent": "historical_knowledge", "confidence": 0.75, "suggestedWorkspace": "all"}
+{"intent": null, "confidence": 0.1, "suggestedWorkspace": "gravityforms"}
 
 User Query: "${query}"
 
@@ -180,9 +181,25 @@ JSON Response:
                 confidence = Math.max(0, Math.min(1, confidence || 0));
             }
 
-            // Ensure intent and suggestedWorkspace are strings or null
-            const finalIntent = (typeof parsedResult.intent === 'string' && parsedResult.intent.trim()) ? parsedResult.intent.trim() : null;
-            const finalWorkspace = (typeof parsedResult.suggestedWorkspace === 'string' && parsedResult.suggestedWorkspace.trim()) ? parsedResult.suggestedWorkspace.trim() : null;
+            // Ensure intent is valid and in the allowed list
+            let finalIntent = null;
+            if (typeof parsedResult.intent === 'string' && parsedResult.intent.trim()) {
+                const trimmedIntent = parsedResult.intent.trim();
+                
+                // Check if the intent is in our allowed list
+                if (availableIntents.length > 0 && !availableIntents.includes(trimmedIntent)) {
+                    console.warn(`[Gemini Intent Provider] Received invalid intent "${trimmedIntent}" not in allowed list. Using default.`);
+                    // Use technical_question as a default if available, otherwise null
+                    finalIntent = availableIntents.includes("technical_question") ? "technical_question" : null;
+                } else {
+                    finalIntent = trimmedIntent;
+                }
+            }
+
+            // Ensure suggestedWorkspace is a string or null
+            const finalWorkspace = (typeof parsedResult.suggestedWorkspace === 'string' && parsedResult.suggestedWorkspace.trim()) 
+                ? parsedResult.suggestedWorkspace.trim() 
+                : null;
 
             console.log(`[Gemini Intent Provider] Parsed result: Intent=${finalIntent}, Conf=${confidence.toFixed(2)}, SugWS=${finalWorkspace}`);
             return {
