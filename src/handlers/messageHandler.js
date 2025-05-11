@@ -13,7 +13,9 @@ import {
 	FEEDBACK_SYSTEM_ENABLED,
 	// Import new config flags for intent routing
 	intentRoutingEnabled,
-	intentConfidenceThreshold, fallbackWorkspace,
+	intentConfidenceThreshold, 
+	fallbackWorkspace,
+	intentProvider
 } from '../config.js';
 
 // --- Service Imports ---
@@ -98,6 +100,79 @@ async function updateOrDeleteThinkingMessage(thinkingMessageTsOrPromise, slack, 
     }
 }
 
+/**
+ * Creates a Slack debug message with intent detection details.
+ * @param {object} params - The parameters object.
+ * @param {string} params.intentProvider - The intent detection provider used ('none', 'gemini', etc.)
+ * @param {string|null} params.intent - The detected intent or null if none was detected.
+ * @param {number} params.confidence - The confidence score for the detected intent.
+ * @param {boolean} params.intentImplemented - Whether the intent was handled by a specific implementation.
+ * @param {string|null} params.suggestedWorkspace - The workspace suggested by intent detection.
+ * @param {string} params.finalWorkspace - The final workspace used for the query.
+ * @param {string} params.llmInputText - The input text sent to AnythingLLM.
+ * @returns {object} Slack blocks for the debug message.
+ */
+function createIntentDebugMessage({
+    intentProvider,
+    intent,
+    confidence,
+    intentImplemented,
+    suggestedWorkspace,
+    finalWorkspace,
+    llmInputText
+}) {
+    const truncatedQuery = llmInputText.length > 200 
+        ? llmInputText.substring(0, 200) + '...' 
+        : llmInputText;
+    
+    return {
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: "*Intent Detection Debug*"
+                }
+            },
+            {
+                type: "section",
+                fields: [
+                    {
+                        type: "mrkdwn",
+                        text: `*Engine:* ${intentProvider || 'none'}`
+                    },
+                    {
+                        type: "mrkdwn",
+                        text: `*Intent:* ${intent || 'None detected'}`
+                    },
+                    {
+                        type: "mrkdwn",
+                        text: `*Confidence:* ${confidence ? confidence.toFixed(2) : 'N/A'}`
+                    },
+                    {
+                        type: "mrkdwn",
+                        text: `*Intent Implemented:* ${intentImplemented ? 'Yes' : 'No'}`
+                    },
+                    {
+                        type: "mrkdwn",
+                        text: `*Suggested Workspace:* ${suggestedWorkspace || 'None'}`
+                    },
+                    {
+                        type: "mrkdwn",
+                        text: `*Final Workspace:* ${finalWorkspace || 'None'}`
+                    }
+                ]
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Query to AnythingLLM:*\n\`\`\`${truncatedQuery}\`\`\``
+                }
+            }
+        ]
+    };
+}
 
 /**
  * Handles incoming message or app_mention events.
@@ -116,6 +191,18 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
     const isMentioned = rawQuery.includes(mentionString);
     let cleanedQuery = rawQuery.replace(mentionString, '').trim();
     const replyTarget = threadTs || originalTs;
+
+    // Add debug info tracking variables
+    let debugLlmInputText = cleanedQuery;
+    let intentDebugInfo = {
+        intentProvider: intentProvider || 'none',
+        intent: null,
+        confidence: 0,
+        intentImplemented: false,
+        suggestedWorkspace: null,
+        finalWorkspace: null,
+        llmInputText: cleanedQuery
+    };
 
     console.log(`[Msg Handler] Start: User=${userId}, Chan=${channelId}, TS=${originalTs}, Thread=${threadTs || 'None'}, Target=${replyTarget}, Mention=${isMentioned}, Query="${cleanedQuery}"`);
 
@@ -269,6 +356,12 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
             intentDetectionResult = await detectIntentAndWorkspace(cleanedQuery, [], availableWorkSpaces );
             const { intent, confidence, suggestedWorkspace } = intentDetectionResult;
 			console.log({ intent, confidence, suggestedWorkspace } );
+            
+            // Update debug info with intent detection results
+            intentDebugInfo.intent = intent;
+            intentDebugInfo.confidence = confidence;
+            intentDebugInfo.suggestedWorkspace = suggestedWorkspace;
+
             // --- Step 5b: Intent-Based Routing ---
             if (intentRoutingEnabled && intent && confidence >= intentConfidenceThreshold) {
                 console.log(`[Msg Handler] Intent detected: '${intent}' (Confidence: ${confidence.toFixed(2)}). Attempting routing.`);
@@ -288,6 +381,21 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                         console.warn("Placeholder: `handleGithubLookupIntent` not implemented.");
                         await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { text: `🚧 Intent '${intent}' handler not implemented yet.`});
                         intentHandled = true; // Mark as handled (even if stubbed) to prevent fallback
+                        
+                        // Update debug info
+                        intentDebugInfo.intentImplemented = true;
+                        intentDebugInfo.finalWorkspace = githubWorkspaceSlug || fallbackWorkspace;
+                        
+                        // Post debug message
+                        try {
+                            const debugMessagePayload = createIntentDebugMessage(intentDebugInfo);
+                            debugMessagePayload.text = "Intent Detection Debug Info";
+                            debugMessagePayload.thread_ts = replyTarget;
+                            debugMessagePayload.channel = channelId;
+                            await slack.chat.postMessage(debugMessagePayload);
+                        } catch (debugError) {
+                            console.error("[Msg Handler] Error posting intent debug message:", debugError);
+                        }
                         break;
                     case 'ask_faq': // Example Intent
                          console.log(`[Msg Handler] Routing to 'ask_faq' handler.`);
@@ -296,6 +404,21 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                          console.warn("Placeholder: `handleFaqIntent` not implemented.");
                          await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { text: `🚧 Intent '${intent}' handler not implemented yet.`});
                          intentHandled = true; // Mark as handled
+
+                         // Update debug info
+                         intentDebugInfo.intentImplemented = true;
+                         intentDebugInfo.finalWorkspace = githubWorkspaceSlug || fallbackWorkspace;
+                         
+                         // Post debug message
+                         try {
+                             const debugMessagePayload = createIntentDebugMessage(intentDebugInfo);
+                             debugMessagePayload.text = "Intent Detection Debug Info";
+                             debugMessagePayload.thread_ts = replyTarget;
+                             debugMessagePayload.channel = channelId;
+                             await slack.chat.postMessage(debugMessagePayload);
+                         } catch (debugError) {
+                             console.error("[Msg Handler] Error posting intent debug message:", debugError);
+                         }
                          break;
                     // Add cases for other specific intents you want to handle directly
                     default:
@@ -390,6 +513,10 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                 // Prepend history if fetched
                 llmInputText = historyForLlm + "User: " + llmInputText + instruction;
 
+                // Update debug info
+                intentDebugInfo.llmInputText = llmInputText.substring(0, llmInputText.indexOf(instruction) || llmInputText.length);
+                intentDebugInfo.finalWorkspace = finalWorkspaceSlug;
+                
                 console.log(`[Msg Handler] Querying LLM: Ws=${finalWorkspaceSlug}, Thr=${anythingLLMThreadSlug}, Input Length=${llmInputText.length} (History included: ${!!historyForLlm})`);
                 const rawReply = await queryLlm(finalWorkspaceSlug, anythingLLMThreadSlug, llmInputText);
                 const trimmedReply = typeof rawReply === 'string' ? rawReply.trim() : "";
@@ -463,6 +590,18 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                             ];
                             await slack.chat.postMessage({ channel: channelId, thread_ts: replyTarget, text: "Was this response helpful?", blocks: feedbackBlock });
                         } catch (e) { console.warn("[Msg Handler] Failed post feedback buttons:", e.data?.error || e.message); }
+                    }
+
+                    // --- Step 5g: Post Intent Debug Message (New) ---
+                    try {
+                        // Post debug message with all the accumulated info
+                        const debugMessagePayload = createIntentDebugMessage(intentDebugInfo);
+                        debugMessagePayload.text = "Intent Detection Debug Info";
+                        debugMessagePayload.thread_ts = replyTarget;
+                        debugMessagePayload.channel = channelId;
+                        await slack.chat.postMessage(debugMessagePayload);
+                    } catch (debugError) {
+                        console.error("[Msg Handler] Error posting intent debug message:", debugError);
                     }
                 } // End if (!trimmedReply)
 

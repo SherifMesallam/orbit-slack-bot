@@ -51,10 +51,49 @@ export async function detectIntent(query, availableIntents = [], availableWorksp
     }
 
     // --- 3. Construct Prompt ---
-    // Dynamically create lists for the prompt, providing guidance to the model.
+    // Optimized intent detection instructions
     const intentList = availableIntents.length > 0
-        ? `Choose ONLY from the following list if applicable: [${availableIntents.join(', ')}]. If none apply, determine the most fitting intent.`
-        : 'Determine the most fitting intent.';
+        ? `You must classify this query into EXACTLY ONE of these intent categories:
+
+---------- INTENT CATEGORIES ----------
+
+1. technical_question
+   Queries about code functionality, implementation details, debugging, or technical how-to.
+   Examples: "How does the merge tags system work?", "Is there a method to check if a form is conversational?", 
+   "Why does the validation fail when using conditional logic?", "How can I debug this JS error in the form editor?"
+
+2. best_practices_question
+   Queries about optimal approaches, coding standards, design patterns, or recommended ways to implement something.
+   Examples: "What's the best way to extend the form editor?", "Should I use hooks or filters for this?",
+   "What's our standard pattern for implementing new field types?", "How should I structure this new feature?"
+
+3. historical_knowledge
+   Queries about past decisions, previous discussions, or organizational memory.
+   Examples: "Didn't we discuss this issue last month?", "Why did we implement it this way originally?",
+   "Was there a PR about the notification system?", "What was our conclusion about the API rate limits?"
+
+4. bot_abilities
+   Queries about what the bot can do, access, or help with.
+   Examples: "Can you help with PR reviews?", "Do you have access to the docs repository?",
+   "Are you able to summarize issues?", "Can you explain code from private repositories?"
+
+5. docs
+   Queries about documentation, usage instructions, or explanatory content.
+   Examples: "How do I use conditional logic in forms?", "What does the gravity_form() function do?",
+   "Is there documentation for the REST API?", "How do customers use the survey add-on?"
+
+---------- CLASSIFICATION RULES ----------
+
+- Choose EXACTLY ONE intent that best matches the query.
+- If the query fits multiple categories, select the PRIMARY intent.
+- If uncertain, classify based on what the user is PRIMARILY asking for.
+- If the query doesn't fit any category well, respond with intent: null.
+- Ignore formal greeting parts of queries when determining intent.
+
+Your classification should be precise and consistent.`
+        : 'Determine the most appropriate intent that describes the user query.';
+
+    // Workspace suggestion instructions
     const workspaceList = availableWorkspaces.length > 0
         ? `Suggest the single most relevant workspace for this query based on its topic, choosing ONLY from this list: [${availableWorkspaces.join(', ')}].`
         : 'Use all for the suggested workspace.';
@@ -64,15 +103,15 @@ export async function detectIntent(query, availableIntents = [], availableWorksp
 Analyze the following user query: "${query}"
 
 Your task is to:
-1. Classify the user's primary intent. ${intentList}
+1. ${intentList}
 2. Estimate your confidence in this classification (a number strictly between 0.0 and 1.0).
 3. ${workspaceList}
 
-Respond ONLY with a single, valid JSON object containing exactly three keys: "intent" (string or null), "confidence" (number between 0.0 and 1.0), and "suggestedWorkspace" (string ). Do not include any other text, explanations, or markdown formatting like \`\`\`json.
+Respond ONLY with a single, valid JSON object containing exactly three keys: "intent" (string or null), "confidence" (number between 0.0 and 1.0), and "suggestedWorkspace" (string). Do not include any other text, explanations, or markdown formatting like \`\`\`json.
 
 Example valid responses:
-{"intent": "github_issue_lookup", "confidence": 0.85, "suggestedWorkspace": all}
-{"intent": "general_knowledge_question", "confidence": 0.7, "suggestedWorkspace": gravityformsstipe}
+{"intent": "technical_question", "confidence": 0.85, "suggestedWorkspace": all}
+{"intent": "best_practices_question", "confidence": 0.7, "suggestedWorkspace": gravityformsstipe}
 {"intent": null, "confidence": 0.1, "suggestedWorkspace": gravityforms}
 
 User Query: "${query}"
