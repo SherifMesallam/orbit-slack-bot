@@ -6,6 +6,7 @@ import { markdownToRichTextBlock, extractTextAndCode, splitMessageIntoChunks } f
 import { queryLlm } from '../services/llmService.js';
 import { githubToken, GITHUB_OWNER, githubWorkspaceSlug, formatterWorkspaceSlug } from '../config.js';
 import { slackClient } from '../services/slackService.js'; // Import for posting messages if needed directly
+import { Octokit } from 'octokit';
 
 /**
  * =============================================================================
@@ -409,6 +410,114 @@ export async function handlePrReviewCommand(owner, repo, prNumber, workspaceSlug
     }
 }
 
+/**
+ * Handles the 'gh: summarize issue' command.
+ * Provides just a summary of the GitHub issue.
+ * @param {string} owner - Repo owner.
+ * @param {string} repo - Repo name.
+ * @param {number} issueNumber - Issue number.
+ * @param {string | null} userPrompt - Optional user question about the issue.
+ * @param {string} replyTarget - Channel ID or Thread TS for posting results.
+ * @param {string} channel - Channel ID where command was invoked.
+ * @param {object} slack - Slack WebClient.
+ * @param {object} octokit - Octokit instance.
+ * @param {Promise<string | null>} thinkingMessagePromise - Promise for the thinking message TS.
+ * @param {string | null} workspaceSlugForLlm - Workspace slug to use for LLM calls.
+ * @param {string | null} anythingLLMThreadSlug - Thread slug if invoked via message, null otherwise.
+ * @returns {Promise<boolean>} True if handled.
+ */
+export async function handleIssueSummaryCommand(owner, repo, issueNumber, userPrompt, replyTarget, channel, slack, octokit, thinkingMessagePromise, workspaceSlugForLlm, anythingLLMThreadSlug) {
+    console.log(`[CH - Issue Summary] Handling ${owner}/${repo}#${issueNumber}. LLM Ws: ${workspaceSlugForLlm}, Thread: ${anythingLLMThreadSlug || 'N/A'}`);
+
+    // Validate necessary inputs for this handler
+    if (!workspaceSlugForLlm) { await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: `❌ Cannot summarize issue: Target LLM workspace is unknown.` }); return true; }
+    if (!githubToken || !octokit) { await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: `❌ GitHub not configured.` }); return true; }
+
+    try {
+        await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: `:robot_face: Fetching issue ${owner}/${repo}#${issueNumber}...` });
+        const issueDetails = await getGithubIssueDetails(issueNumber, owner, repo); // Uses service
+
+        if (!issueDetails) { await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: `❌ Couldn't fetch issue ${owner}/${repo}#${issueNumber}.` }); return true; }
+
+        // --- Construct Context ---
+        let issueContext = `**Issue:** ${owner}/${repo}#${issueNumber}\n**Title:** ${issueDetails.title}\n**URL:** <${issueDetails.url}|View>\n**State:** ${issueDetails.state}\n**Body:**\n${(issueDetails.body || '').substring(0, 2000)}\n\n`;
+        const MAX_COMMENTS_ISSUE = 5; const MAX_COMMENT_LENGTH = 300;
+        if (issueDetails.comments && issueDetails.comments.length > 0) {
+            issueContext += `**Recent Comments (${Math.min(issueDetails.comments.length, MAX_COMMENTS_ISSUE)}):**\n`;
+            issueDetails.comments.slice(-MAX_COMMENTS_ISSUE).forEach(c => { 
+                issueContext += `*${c.user}:* ${(c.body || '').substring(0, MAX_COMMENT_LENGTH)}\n---\n`; 
+            });
+        }
+        // --- End Context ---
+
+        // Only try to adjust workspace if we're using a generic workspace like "github" or "all"
+        if (workspaceSlugForLlm === 'github' || workspaceSlugForLlm === 'all') {
+            await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { 
+                text: `:detective: Analyzing issue content to determine best workspace...` 
+            });
+            
+            try {
+                // Use the intent detection engine to analyze the issue content
+                const { detectIntentAndWorkspace } = await import('../ai/intentDetectionService.js');
+                const { getWorkspaces } = await import('../services/workspaceService.js');
+                
+                // Get available workspaces
+                const workspaces = await getWorkspaces(true);
+                const workspaceNames = workspaces?.map(w => w.slug) || [];
+                
+                // Create a query for the intent detection that's essentially the issue content
+                const intentQuery = `Issue about: ${issueDetails.title} - ${(issueDetails.body || '').substring(0, 1000)}`;
+                console.log(`[CH - Issue Summary] Running intent detection for workspace selection with query length: ${intentQuery.length}`);
+                
+                // Detect intent & workspace suggestion
+                const intentResult = await detectIntentAndWorkspace(intentQuery, [], workspaceNames);
+                
+                if (intentResult && intentResult.suggestedWorkspace && 
+                    intentResult.suggestedWorkspace !== workspaceSlugForLlm &&
+                    workspaceNames.includes(intentResult.suggestedWorkspace)) {
+                    
+                    console.log(`[CH - Issue Summary] Intent detection suggests workspace "${intentResult.suggestedWorkspace}" with confidence ${intentResult.confidence}`);
+                    
+                    // If confidence is reasonable and it found a specific workspace
+                    if (intentResult.confidence >= 0.6 && 
+                        intentResult.suggestedWorkspace !== 'github' && 
+                        intentResult.suggestedWorkspace !== 'all') {
+                        
+                        const originalWorkspace = workspaceSlugForLlm;
+                        workspaceSlugForLlm = intentResult.suggestedWorkspace;
+                        
+                        console.log(`[CH - Issue Summary] Switching workspace from "${originalWorkspace}" to "${workspaceSlugForLlm}" based on intent detection`);
+                        
+                        // Update thinking message to inform about the workspace change
+                        await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { 
+                            text: `:mag: Intent detection suggests using "${workspaceSlugForLlm}" workspace for this issue. Switching...` 
+                        });
+                    }
+                }
+            } catch (intentError) {
+                console.error(`[CH - Issue Summary] Error in intent detection for workspace selection:`, intentError);
+                // Continue with original workspace if there's an error
+            }
+        }
+
+        await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: `:mag: Summarizing issue #${issueNumber} using "${workspaceSlugForLlm}" workspace...` });
+        const summarizePrompt = `Summarize GitHub issue ${owner}/${repo}#${issueNumber}:\n\n${issueContext}`;
+        const summaryResponse = await queryLlm(workspaceSlugForLlm, anythingLLMThreadSlug, summarizePrompt); // Use provided workspace/thread
+        if (!summaryResponse) throw new Error('LLM failed summary.');
+
+        await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, null); // Delete thinking
+
+        const summaryBlock = markdownToRichTextBlock(`*Summary for issue #${issueNumber}:*\n${summaryResponse}`);
+        await slack.chat.postMessage({ channel, thread_ts: replyTarget, text: `Summary issue #${issueNumber}:`, blocks: summaryBlock ? [summaryBlock] : undefined });
+        
+        return true;
+
+    } catch (error) {
+        console.error(`[CH - Issue Summary] Error for ${owner}/${repo}#${issueNumber}:`, error);
+        await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: `❌ Error summarizing issue #${issueNumber} with "${workspaceSlugForLlm}" workspace: ${error.message}` });
+        return true;
+    }
+}
 
 /**
  * Handles the 'gh: analyze issue' command / '/gh-analyze' slash command.
@@ -441,7 +550,12 @@ export async function handleIssueAnalysisCommand(owner, repo, issueNumber, userP
         // --- Construct Context ---
         let issueContext = `**Issue:** ${owner}/${repo}#${issueNumber}\n**Title:** ${issueDetails.title}\n**URL:** <${issueDetails.url}|View>\n**State:** ${issueDetails.state}\n**Body:**\n${(issueDetails.body || '').substring(0, 2000)}\n\n`;
         const MAX_COMMENTS_ISSUE = 5; const MAX_COMMENT_LENGTH = 300;
-        if (issueDetails.comments && issueDetails.comments.length > 0) { /* ... format comments ... */ issueContext += `**Recent Comments (${Math.min(issueDetails.comments.length, MAX_COMMENTS_ISSUE)}):**\n`; issueDetails.comments.slice(-MAX_COMMENTS_ISSUE).forEach(c => { issueContext += `*${c.user}:* ${(c.body || '').substring(0, MAX_COMMENT_LENGTH)}\n---\n`; }); }
+        if (issueDetails.comments && issueDetails.comments.length > 0) {
+            issueContext += `**Recent Comments (${Math.min(issueDetails.comments.length, MAX_COMMENTS_ISSUE)}):**\n`;
+            issueDetails.comments.slice(-MAX_COMMENTS_ISSUE).forEach(c => { 
+                issueContext += `*${c.user}:* ${(c.body || '').substring(0, MAX_COMMENT_LENGTH)}\n---\n`; 
+            });
+        }
         // --- End Context ---
 
         // Only try to adjust workspace if we're using a generic workspace like "github" or "all"
@@ -494,32 +608,37 @@ export async function handleIssueAnalysisCommand(owner, repo, issueNumber, userP
             }
         }
 
-        await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: `:mag: Summarizing issue #${issueNumber} using "${workspaceSlugForLlm}" workspace...` });
-        const summarizePrompt = `Summarize GitHub issue ${owner}/${repo}#${issueNumber}:\n\n${issueContext}`;
-        const summaryResponse = await queryLlm(workspaceSlugForLlm, anythingLLMThreadSlug, summarizePrompt); // Use provided workspace/thread
-        if (!summaryResponse) throw new Error('LLM failed summary.');
-
-        const summaryBlock = markdownToRichTextBlock(`*Summary for issue #${issueNumber}:*\n${summaryResponse}`);
-		console.log( '----BLOCK DATA------' );
-		console.log( summaryBlock );
-		console.log( '----BLOCK DATA------' );
-
-        await slack.chat.postMessage({ channel, thread_ts: replyTarget, text: `Summary issue #${issueNumber}:`, blocks: summaryBlock ? [summaryBlock] : undefined });
-
+        // CHANGE: Skip summarization step and go directly to analysis
         await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, { text: `:brain: Analyzing issue #${issueNumber} using "${workspaceSlugForLlm}" workspace...` });
-        let analyzePrompt = `Based on summary ("${summaryResponse.substring(0, 300)}...") and context, analyze issue ${owner}/${repo}#${issueNumber}`;
-        if (userPrompt) { analyzePrompt += ` addressing: "${userPrompt}"`; } else { analyzePrompt += `. Key points, causes, next steps?`; }
+        
+        // Create the analysis prompt
+        let analyzePrompt = `Analyze GitHub issue ${owner}/${repo}#${issueNumber}`;
+        if (userPrompt) { 
+            analyzePrompt += ` addressing: "${userPrompt}"`; 
+        } else { 
+            analyzePrompt += `. Provide key points, probable causes, and recommended next steps.`; 
+        }
         analyzePrompt += `\n\n**Full Context:**\n${issueContext}`;
-        const analysisResponse = await queryLlm(workspaceSlugForLlm, anythingLLMThreadSlug, analyzePrompt); // Use provided workspace/thread
+        
+        // Call the LLM for analysis
+        const analysisResponse = await queryLlm(workspaceSlugForLlm, anythingLLMThreadSlug, analyzePrompt);
         if (!analysisResponse) throw new Error('LLM failed analysis.');
 
         await updateOrDeleteThinkingMessage(thinkingMessagePromise, slack, channel, null); // Delete thinking
 
         const analysisChunks = splitMessageIntoChunks(analysisResponse);
-        for (let i = 0; i < analysisChunks.length; i++) { /* ... post chunks ... */
-            const chunk = analysisChunks[i]; const block = markdownToRichTextBlock(chunk);
-            await slack.chat.postMessage({ channel, thread_ts: replyTarget, text: `Analysis ${i + 1}`, ...(block ? { blocks: [block] } : { text: chunk }) });
-            if (analysisChunks.length > 1 && i < analysisChunks.length - 1) await new Promise(r => setTimeout(r, 500));
+        for (let i = 0; i < analysisChunks.length; i++) {
+            const chunk = analysisChunks[i];
+            const block = markdownToRichTextBlock(chunk);
+            await slack.chat.postMessage({ 
+                channel, 
+                thread_ts: replyTarget, 
+                text: `Analysis ${i + 1}`, 
+                ...(block ? { blocks: [block] } : { text: chunk })
+            });
+            if (analysisChunks.length > 1 && i < analysisChunks.length - 1) {
+                await new Promise(r => setTimeout(r, 500));
+            }
         }
         return true;
 
@@ -1372,6 +1491,122 @@ export async function handleIntentDetectionDebugCommand(query, channelId, thread
             thread_ts: threadTs,
             text: `❌ Error testing intent detection: ${error.message}`
         });
+        return true;
+    }
+}
+
+/**
+ * Handles the github_issue_summary intent.
+ * Provides a summary of a GitHub issue.
+ * @param {object} slack - Slack WebClient instance
+ * @param {string} userId - Message sender ID 
+ * @param {string} channelId - Message channel ID
+ * @param {string} messageText - Message text (without mentions)
+ * @param {string | null} threadTs - Thread TS if in thread
+ * @param {string | null} replyTarget - Thread TS or channel ID for reply
+ * @param {string | null} thinkingMessageTs - Thinking message TS if it exists 
+ * @param {object} intentData - Intent detection result data
+ * @returns {Promise<boolean>} True if handled.
+ */
+export async function handleGithubIssueSummaryIntent(slack, userId, channelId, messageText, threadTs, replyTarget, thinkingMessageTs, intentData) {
+    console.log(`[CommandHandler] Handling github_issue_summary intent, confidence: ${intentData.confidence}`);
+    
+    // Parse issue parameters
+    let issueMatch, owner, repo, issueNumber;
+    if (messageText.match(/\b(summarize|summary)\b.*\b(\w+\/\w+)#(\d+)\b/i)) {
+        // Format: summarize owner/repo#number
+        issueMatch = messageText.match(/\b(summarize|summary).*\b(\w+)\/(\w+)#(\d+)\b/i);
+        if (issueMatch) {
+            owner = issueMatch[2];
+            repo = issueMatch[3];
+            issueNumber = parseInt(issueMatch[4]);
+        }
+    } else {
+        // Format: summarize #number (default repo)
+        issueMatch = messageText.match(/\b(summarize|summary).*\s#?(\d+)\b/i);
+        if (issueMatch) {
+            // Default to gravityforms/gravityforms if no repo specified
+            owner = 'gravityforms';
+            repo = 'gravityforms';
+            issueNumber = parseInt(issueMatch[2]);
+        }
+    }
+
+    // No valid issue found
+    if (!issueNumber) {
+        await slack.chat.postMessage({
+            channel: channelId,
+            thread_ts: replyTarget,
+            text: "❓ I couldn't identify which issue to summarize. Please specify an issue number like 'summarize #123' or 'summarize repo/name#456'."
+        });
+        return true;
+    }
+
+    // Create a thinking message if one wasn't provided
+    let localThinkingMessageTs = thinkingMessageTs;
+    if (!localThinkingMessageTs) {
+        try {
+            console.log(`[CommandHandler] No thinking message found, creating one for github_issue_summary`);
+            const thinkingMsg = await slack.chat.postMessage({ 
+                channel: channelId, 
+                thread_ts: replyTarget, 
+                text: ":hourglass_flowing_sand: Processing issue summary request..." 
+            });
+            localThinkingMessageTs = thinkingMsg?.ts;
+        } catch (err) {
+            console.error("[CommandHandler] Failed to post thinking message:", err.data?.error || err.message);
+            // Continue without thinking message
+        }
+    }
+
+    // Determine workspace to use
+    let workspaceSlug = intentData.suggestedWorkspace;
+    
+    // If we don't have a workspace or it's the default, try to extract from repo name
+    if (!workspaceSlug || workspaceSlug === 'github' || workspaceSlug === 'all') {
+        if (repo.startsWith('gravityforms') && repo !== 'gravityforms') {
+            // Extract addon name from repo, e.g., gravityformsstripe -> stripe
+            const addonMatch = repo.match(/^gravityforms(.+)$/);
+            if (addonMatch) workspaceSlug = addonMatch[1].toLowerCase();
+            else workspaceSlug = repo;
+        } else {
+            workspaceSlug = repo;
+        }
+    }
+    
+    console.log(`[CommandHandler] Extracted Issue: ${owner}/${repo}#${issueNumber}, Workspace: ${workspaceSlug}, Prompt: ${intentData.userPrompt || 'None'}`);
+    
+    // Update thinking message with workspace info
+    await updateOrDeleteThinkingMessage(localThinkingMessageTs, slack, channelId, { 
+        text: `:hourglass_flowing_sand: Processing issue summary for ${owner}/${repo}#${issueNumber} using "${workspaceSlug}" workspace...` 
+    });
+    
+    // Call the existing handler
+    console.log(`[CommandHandler] Debug - About to call handleIssueSummaryCommand`);
+    
+    try {
+        // Get octokit client
+        const octokit = new Octokit({
+            auth: githubToken
+        });
+        
+        // Call the issue summary handler
+        return await handleIssueSummaryCommand(
+            owner,
+            repo,
+            issueNumber,
+            intentData.userPrompt,
+            replyTarget,
+            channelId,
+            slack,
+            octokit,
+            Promise.resolve(localThinkingMessageTs),
+            workspaceSlug,
+            intentData.anythingLLMThreadSlug
+        );
+    } catch (err) {
+        console.error("[CommandHandler] Error calling issue summary handler:", err);
+        await updateOrDeleteThinkingMessage(localThinkingMessageTs, slack, channelId, { text: `❌ Error processing issue summary: ${err.message}` });
         return true;
     }
 }

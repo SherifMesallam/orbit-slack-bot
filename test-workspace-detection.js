@@ -10,19 +10,19 @@ const testCases = [
     name: "Stripe Issue",
     title: "Issue with Stripe payment gateway",
     body: "When processing a credit card payment, the Stripe checkout form doesn't appear properly on mobile devices. The form is cut off and users can't enter their card details. This only happens with the Stripe add-on.",
-    expectedWorkspace: "stripe"
+    expectedWorkspace: "gravityformsstripe"
   },
   {
     name: "PayPal Issue",
     title: "PayPal IPN not working",
     body: "We're having problems with PayPal's Instant Payment Notification. The payment goes through but our site isn't receiving the IPN callback, so orders stay in 'pending' status. The PayPal add-on is version 2.5.",
-    expectedWorkspace: "paypal"
+    expectedWorkspace: "gravityformsppcp"
   },
   {
     name: "User Registration Issue",
     title: "Users can't log in after registration",
     body: "After a user registers using the User Registration add-on, they can't log in with their credentials. The registration completes successfully and shows up in the admin, but login attempts fail.",
-    expectedWorkspace: "user-registration"
+    expectedWorkspace: "gravityformsuserregistration"
   },
   {
     name: "Generic Form Issue",
@@ -34,7 +34,7 @@ const testCases = [
     name: "Mailchimp Issue",
     title: "Mailchimp integration failing to sync subscribers",
     body: "Submissions to my form with the Mailchimp add-on aren't being added to my Mailchimp list. The form submits successfully but the user never appears in Mailchimp.",
-    expectedWorkspace: "mailchimp"
+    expectedWorkspace: "gravityformsmailchimp"
   }
 ];
 

@@ -105,6 +105,21 @@ EXAMPLES:
 - "Explain GitHub issue gravityforms/gravityformsstripe#789" → github_issue_analysis
 - "What's happening with issue gravityforms/gravityformspaypal#123?" → github_issue_analysis
 
+# github_issue_summary intent examples:
+- "Summarize issue #456" → github_issue_summary
+- "Give me a summary of issue 789" → github_issue_summary
+- "Summarize GitHub issue #123" → github_issue_summary
+- "Can you summarize issue 567 for me?" → github_issue_summary
+- "I need a summary of issue #890" → github_issue_summary
+- "What's a summary of issue #234?" → github_issue_summary
+- "Provide a brief overview of GitHub issue 345" → github_issue_summary
+- "Just summarize issue #678" → github_issue_summary
+- "Give me the TL;DR of issue 901" → github_issue_summary
+- "Quick summary of issue #432" → github_issue_summary
+- "Summarize issue gravityforms/gravityforms#456" → github_issue_summary
+- "Summarize GitHub issue gravityforms/gravityformsstripe#789" → github_issue_summary
+- "Give me a summary of issue gravityforms/gravityformspaypal#123" → github_issue_summary
+
 # docs intent examples:
 - "How do I use the Gravity Forms conditional logic?" → docs
 - "What are the steps to set up a form?" → docs
@@ -241,6 +256,9 @@ ${availableIntents.map((intent, index) => {
         case "github_issue_analysis":
             description = "Requests to analyze, summarize, or explain a GitHub issue. For workspace suggestions, prefer repo names or specific components extracted from the repo name (e.g., for 'gravityformsstripe' suggest 'stripe'). Never use issue numbers as workspaces.";
             break;
+        case "github_issue_summary":
+            description = "Requests to get a brief summary of a GitHub issue without detailed analysis. For workspace suggestions, follow the same rules as github_issue_analysis.";
+            break;
         case "github_api_query":
             description = "Natural language requests to query the GitHub API.";
             break;
@@ -263,6 +281,7 @@ ${availableIntents.map((intent, index) => {
 - For queries about how to use features or general product knowledge, use "docs".
 - For queries asking to find, list, search for, or retrieve information from GitHub like issues or PRs, use "github_api_query".
 - For queries requesting analysis or explanation of a specific issue, use "github_issue_analysis".
+- For queries requesting ONLY a summary or brief overview of an issue, without detailed analysis, use "github_issue_summary".
 - For queries asking about a specific PR review, use "github_pr_review".
 - Prioritize GitHub-specific intents (github_*) when a query mentions GitHub entities like issues, PRs, releases, etc.
 
@@ -461,7 +480,7 @@ export async function testReleaseIntentDetection(query, availableIntents = [], a
             availableIntents.length > 0 ? availableIntents : [
                 "technical_question", "best_practices_question", "historical_knowledge",
                 "bot_abilities", "docs", "greeting", "github_release_info", 
-                "github_pr_review", "github_issue_analysis", "github_api_query"
+                "github_pr_review", "github_issue_analysis", "github_issue_summary", "github_api_query"
             ],
             availableWorkspaces.length > 0 ? availableWorkspaces : ["all", "gravityforms", "gravityformsstripe"]
         );

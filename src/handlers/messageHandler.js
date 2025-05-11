@@ -49,6 +49,7 @@ import {
     handleGithubReleaseInfoIntent, 
     handleGithubPrReviewIntent,
     handleGithubIssueAnalysisIntent,
+    handleGithubIssueSummaryIntent,
     handleGithubApiQueryIntent,
     // --- Debug Handler ---
     handleIntentDetectionDebugCommand
@@ -536,6 +537,31 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                         logIntentContext(intentContext, 'github_issue_analysis');
                         intentHandled = await handleGithubIssueAnalysisIntent(intentContext);
                         console.log(`[Msg Handler] 'github_issue_analysis' handler completed with result: ${intentHandled}`);
+                        
+                        // Update debug info
+                        intentDebugInfo.intentImplemented = intentHandled;
+                        intentDebugInfo.finalWorkspace = githubWorkspaceSlug || fallbackWorkspace;
+                        
+                        // Only post debug message after handler completes
+                        if (intentHandled) {
+                            // Wait a brief moment to allow the handler's response to show first
+                            await new Promise(resolve => setTimeout(resolve, 500));
+                            try {
+                                const debugMessagePayload = createIntentDebugMessage(intentDebugInfo);
+                                debugMessagePayload.text = "Intent Detection Debug Info";
+                                debugMessagePayload.thread_ts = replyTarget;
+                                debugMessagePayload.channel = channelId;
+                                await slack.chat.postMessage(debugMessagePayload);
+                            } catch (debugError) {
+                                console.error("[Msg Handler] Error posting intent debug message:", debugError);
+                            }
+                        }
+                        break;
+                    case 'github_issue_summary':
+                        console.log(`[Msg Handler] Routing to 'github_issue_summary' handler.`);
+                        logIntentContext(intentContext, 'github_issue_summary');
+                        intentHandled = await handleGithubIssueSummaryIntent(slack, userId, channelId, cleanedQuery, threadTs, replyTarget, thinkingMessageTs, intentDetectionResult);
+                        console.log(`[Msg Handler] 'github_issue_summary' handler completed with result: ${intentHandled}`);
                         
                         // Update debug info
                         intentDebugInfo.intentImplemented = intentHandled;
