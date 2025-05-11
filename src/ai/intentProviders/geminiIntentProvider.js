@@ -106,7 +106,7 @@ Your classification must be precise and consistent, using ONLY the exact intent 
     const workspaceList = availableWorkspaces.length > 0
         ? `Consider which workspaces from this list would be most relevant to the query: [${availableWorkspaces.join(', ')}].
         
-Analyze the query's topic and rank the most relevant workspaces in order of relevance. Include only workspaces that have meaningful relevance to the query.`
+Analyze the query's topic and rank the most relevant workspaces in order of relevance. Include only workspaces that have meaningful relevance to the query. IMPORTANT: You MUST include at least one workspace in your rankedWorkspaces array.`
         : 'Use all for the suggested workspace.';
 
     // The core prompt instructing the model on its task and desired output format.
@@ -122,7 +122,7 @@ Respond ONLY with a single, valid JSON object containing exactly these keys:
 - "intent" (string or null): The classified intent from the allowed list
 - "confidence" (number): Your confidence score between 0.0 and 1.0
 - "suggestedWorkspace" (string): The primary (most relevant) workspace
-- "rankedWorkspaces" (array): Up to 3 workspaces in descending order of relevance, with confidence scores
+- "rankedWorkspaces" (array): List of relevant workspaces with confidence scores. Each item must be an object with "name" and "confidence" properties. Always include at least one workspace.
 
 Do not include any other text, explanations, or markdown formatting like \`\`\`json.
 

@@ -379,13 +379,15 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
             console.log("[Msg Handler] Running Intent Detection...");
 			const availableWorkSpaces = await getWorkspaces( true );
             intentDetectionResult = await detectIntentAndWorkspace(cleanedQuery, [], availableWorkSpaces );
-            const { intent, confidence, suggestedWorkspace } = intentDetectionResult;
+            const { intent, confidence, suggestedWorkspace, rankedWorkspaces } = intentDetectionResult;
 			console.log({ intent, confidence, suggestedWorkspace } );
+            console.log("rankedWorkspaces", JSON.stringify(rankedWorkspaces)); // Log rankedWorkspaces
             
             // Update debug info with intent detection results
             intentDebugInfo.intent = intent;
             intentDebugInfo.confidence = confidence;
             intentDebugInfo.suggestedWorkspace = suggestedWorkspace;
+            intentDebugInfo.rankedWorkspaces = rankedWorkspaces; // Make sure this is passed through properly
 
             // --- Step 5b: Intent-Based Routing ---
             if (intentRoutingEnabled && intent && confidence >= intentConfidenceThreshold) {

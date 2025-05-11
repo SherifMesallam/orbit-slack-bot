@@ -27,10 +27,11 @@ const providers = {
  * @param {string} query - The user's input query text.
  * @param {string[]} [availableIntents=[]] - Optional: List of possible intents the provider might constrain itself to.
  * @param {string[]} [availableWorkspaces=[]] - Optional: List of available workspace slugs the provider might use for suggestions.
- * @returns {Promise<{ intent: string | null, confidence: number, suggestedWorkspace: string | null }>}
+ * @returns {Promise<{ intent: string | null, confidence: number, suggestedWorkspace: string | null, rankedWorkspaces: Array }>}
  * - intent: The detected intent string, or null if none detected/applicable.
  * - confidence: A numerical score (e.g., 0-1) indicating the provider's confidence, 0 if none.
  * - suggestedWorkspace: A workspace slug suggested by the provider, or null.
+ * - rankedWorkspaces: An array of workspace suggestions with confidence scores.
  */
 export async function detectIntentAndWorkspace(query, availableIntents = [], availableWorkspaces = []) {
     // Determine which provider to use based on config, default to 'none'.
@@ -58,20 +59,25 @@ export async function detectIntentAndWorkspace(query, availableIntents = [], ava
             !result.hasOwnProperty('suggestedWorkspace')) { // suggestedWorkspace can be null, but key must exist
              console.error(`[Intent Service] Provider '${providerKey}' returned an invalid result structure:`, result);
              // Return a default safe response if the provider's result is malformed.
-            return { intent: null, confidence: 0, suggestedWorkspace: null };
+            return { intent: null, confidence: 0, suggestedWorkspace: null, rankedWorkspaces: [] };
         }
 
         // Ensure confidence is within a reasonable range (optional, but good practice)
         result.confidence = Math.max(0, Math.min(1, result.confidence || 0)); // Clamp between 0 and 1
 
-        console.log(`[Intent Service] Provider '${providerKey}' result: Intent=${result.intent}, Confidence=${result.confidence.toFixed(2)}, SuggestedWs=${result.suggestedWorkspace}`);
+        // Ensure rankedWorkspaces exists in the result
+        if (!result.hasOwnProperty('rankedWorkspaces') || !Array.isArray(result.rankedWorkspaces)) {
+            result.rankedWorkspaces = [];
+        }
+
+        console.log(`[Intent Service] Provider '${providerKey}' result: Intent=${result.intent}, Confidence=${result.confidence.toFixed(2)}, SuggestedWs=${result.suggestedWorkspace}, RankedWs=${JSON.stringify(result.rankedWorkspaces)}`);
         return result;
 
     } catch (error) {
         // Catch errors during the provider's execution.
         console.error(`[Intent Service] Error executing intent detection with provider '${providerKey}':`, error);
         // Return a default safe response on error.
-        return { intent: null, confidence: 0, suggestedWorkspace: null };
+        return { intent: null, confidence: 0, suggestedWorkspace: null, rankedWorkspaces: [] };
     }
 }
 
