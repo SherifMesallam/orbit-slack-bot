@@ -1585,10 +1585,12 @@ export async function handleGithubIssueSummaryIntent(slack, userId, channelId, m
     console.log(`[CommandHandler] Debug - About to call handleIssueSummaryCommand`);
     
     try {
-        // Get octokit client
-        const octokit = new Octokit({
-            auth: githubToken
-        });
+        // Use the octokit instance from the context
+        const octokit = intentData.octokit;
+        
+        if (!octokit) {
+            throw new Error("GitHub client not available");
+        }
         
         // Call the issue summary handler
         return await handleIssueSummaryCommand(

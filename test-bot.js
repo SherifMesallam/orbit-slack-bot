@@ -86,6 +86,7 @@ const testScenarios = {
   'release_info': 'What\'s the latest release of gravityforms?',
   'pr_review': 'Review PR gravityforms/gravityforms#524',
   'issue_analysis': 'Analyze issue gravityforms/gravityforms#456',
+  'issue_summary': 'Summarize issue gravityforms/gravityforms#456',
   'github_api': 'Find open issues in the gravityforms repo',
   'technical_question': 'How do I fix the validation error in my form?',
   'docs': 'How do I set up conditional logic?'
