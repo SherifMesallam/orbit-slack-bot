@@ -69,8 +69,13 @@ export async function detectIntentAndWorkspace(query, availableIntents = [], ava
         if (!result.hasOwnProperty('rankedWorkspaces') || !Array.isArray(result.rankedWorkspaces)) {
             result.rankedWorkspaces = [];
         }
+        
+        // Ensure rankedIntents exists in the result
+        if (!result.hasOwnProperty('rankedIntents') || !Array.isArray(result.rankedIntents)) {
+            result.rankedIntents = [];
+        }
 
-        console.log(`[Intent Service] Provider '${providerKey}' result: Intent=${result.intent}, Confidence=${result.confidence.toFixed(2)}, SuggestedWs=${result.suggestedWorkspace}, RankedWs=${JSON.stringify(result.rankedWorkspaces)}`);
+        console.log(`[Intent Service] Provider '${providerKey}' result: Intent=${result.intent}, Confidence=${result.confidence.toFixed(2)}, SuggestedWs=${result.suggestedWorkspace}, RankedWs=${JSON.stringify(result.rankedWorkspaces)}, RankedIntents=${JSON.stringify(result.rankedIntents)}`);
         return result;
 
     } catch (error) {

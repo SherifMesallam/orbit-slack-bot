@@ -116,6 +116,7 @@ async function updateOrDeleteThinkingMessage(thinkingMessageTsOrPromise, slack, 
  * @param {boolean} params.intentImplemented - Whether the intent was handled by a specific implementation.
  * @param {string|null} params.suggestedWorkspace - The workspace suggested by intent detection.
  * @param {Array} params.rankedWorkspaces - Array of workspace suggestions with confidence scores.
+ * @param {Array} params.rankedIntents - Array of intent suggestions with confidence scores.
  * @param {string} params.finalWorkspace - The final workspace used for the query.
  * @param {string} params.llmInputText - The input text sent to AnythingLLM.
  * @returns {object} Slack blocks for the debug message.
@@ -127,6 +128,7 @@ function createIntentDebugMessage({
     intentImplemented,
     suggestedWorkspace,
     rankedWorkspaces = [],
+    rankedIntents = [],
     finalWorkspace,
     llmInputText
 }) {
@@ -142,6 +144,16 @@ function createIntentDebugMessage({
             .join('\n');
     } else {
         rankedWorkspacesText = 'None';
+    }
+    
+    // Format the ranked intents for display
+    let rankedIntentsText = '';
+    if (rankedIntents && rankedIntents.length > 0) {
+        rankedIntentsText = rankedIntents
+            .map((item, index) => `${index + 1}. ${item.name} (${Number(item.confidence).toFixed(2)})`)
+            .join('\n');
+    } else {
+        rankedIntentsText = 'None';
     }
     
     return {
@@ -186,6 +198,13 @@ function createIntentDebugMessage({
                         text: `*Final Workspace:* ${finalWorkspace || 'None'}`
                     }
                 ]
+            },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Ranked Intents:*\n${rankedIntentsText}`
+                }
             },
             {
                 type: "section",
@@ -244,6 +263,8 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
         confidence: 0,
         intentImplemented: false,
         suggestedWorkspace: null,
+        rankedWorkspaces: [],
+        rankedIntents: [],
         finalWorkspace: null,
         llmInputText: cleanedQuery
     };
@@ -451,6 +472,7 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
             intentDebugInfo.confidence = confidence;
             intentDebugInfo.suggestedWorkspace = suggestedWorkspace;
             intentDebugInfo.rankedWorkspaces = rankedWorkspaces; // Make sure this is passed through properly
+            intentDebugInfo.rankedIntents = intentDetectionResult.rankedIntents || []; // Add rankedIntents to debug info
 
             // --- Step 5b: Intent-Based Routing ---
             if (intentRoutingEnabled && intent && confidence >= intentConfidenceThreshold) {
@@ -476,6 +498,22 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                     intentDebugInfo.intentImplemented = false;
                     intentDebugInfo.finalWorkspace = suggestedWorkspace || githubWorkspaceSlug || fallbackWorkspace;
                     
+                    // Format ranked intents for display
+                    let rankedIntentsText = "None found";
+                    if (intentDetectionResult.rankedIntents && intentDetectionResult.rankedIntents.length > 0) {
+                        rankedIntentsText = intentDetectionResult.rankedIntents
+                            .map((intent, idx) => `${idx + 1}. *${intent.name}* (${(intent.confidence * 100).toFixed(1)}%)`)
+                            .join("\n");
+                    }
+                    
+                    // Format ranked workspaces for display
+                    let rankedWorkspacesText = "None found";
+                    if (intentDetectionResult.rankedWorkspaces && intentDetectionResult.rankedWorkspaces.length > 0) {
+                        rankedWorkspacesText = intentDetectionResult.rankedWorkspaces
+                            .map((ws, idx) => `${idx + 1}. *${ws.name}* (${(ws.confidence * 100).toFixed(1)}%)`)
+                            .join("\n");
+                    }
+                    
                     // Post detailed debug message
                     try {
                         const dryRunMessageBlocks = [
@@ -491,7 +529,7 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                                 fields: [
                                     {
                                         type: "mrkdwn",
-                                        text: `*Detected Intent:* ${intent || 'None'}`
+                                        text: `*Primary Intent:* ${intent || 'None'}`
                                     },
                                     {
                                         type: "mrkdwn",
@@ -506,6 +544,20 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                                         text: `*Handler Function:* handleGithub${intent.charAt(0).toUpperCase() + intent.slice(1)}Intent`
                                     }
                                 ]
+                            },
+                            {
+                                type: "section",
+                                text: {
+                                    type: "mrkdwn",
+                                    text: `*All Ranked Intents:*\n${rankedIntentsText}`
+                                }
+                            },
+                            {
+                                type: "section",
+                                text: {
+                                    type: "mrkdwn",
+                                    text: `*All Ranked Workspaces:*\n${rankedWorkspacesText}`
+                                }
                             },
                             {
                                 type: "section",
