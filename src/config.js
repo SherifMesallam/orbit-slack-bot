@@ -57,6 +57,9 @@ export const WORKSPACE_OVERRIDE_COMMAND_PREFIX = '#';
 /** @type {boolean} Master switch to enable/disable the intent detection step in messageHandler. */
 export const intentRoutingEnabled = process.env.INTENT_ROUTING_ENABLED === 'true' || true; // Default: true
 
+/** @type {boolean} When true, runs intent detection but skips invoking actual handler implementation, returning only debug info. */
+export const intentDetectionDryRunMode = process.env.INTENT_DETECTION_DRY_RUN === 'true' || true; // Default: true
+
 /** @type {string} Name of the intent detection provider to use ('none', 'gemini', etc.). Matches keys in intentDetectionService.js. */
 export const intentProvider = process.env.INTENT_PROVIDER || 'gemini'; // Default: 'gemini'
 
@@ -215,6 +218,9 @@ export function validateConfig() {
     }
     if (intentRoutingEnabled && intentProvider === 'none') {
         warnings.push("INTENT_ROUTING_ENABLED is true, but INTENT_PROVIDER is 'none'. Intent detection step will run but won't detect anything.");
+    }
+    if (intentDetectionDryRunMode) {
+        warnings.push("INTENT_DETECTION_DRY_RUN is enabled. Intent handlers will not be invoked, only detection debug info will be displayed.");
     }
     if (isNaN(intentConfidenceThreshold) || intentConfidenceThreshold < 0 || intentConfidenceThreshold > 1) {
          warnings.push(`Invalid INTENT_CONFIDENCE_THRESHOLD value: "${process.env.INTENT_CONFIDENCE_THRESHOLD}". Must be a number between 0 and 1. Using default: ${intentConfidenceThreshold}`);

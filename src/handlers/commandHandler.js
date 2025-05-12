@@ -616,7 +616,7 @@ export async function handleIssueAnalysisCommand(owner, repo, issueNumber, userP
         if (userPrompt) { 
             analyzePrompt += ` addressing: "${userPrompt}"`; 
         } else { 
-            analyzePrompt += `. Provide key points, probable causes, and recommended next steps.`; 
+            analyzePrompt += `. Provide possible causes and recommended solutions.`; 
         }
         analyzePrompt += `\n\n**Full Context:**\n${issueContext}`;
         

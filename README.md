@@ -204,3 +204,33 @@ docker-compose up -d
 | **export thread**           | reply `#saveThread` anywhere in the thread                                                                                                                                                                                                                     |
 | **delete last bot message** | reply `#delete_last_message` inside the thread                                                                                                                                                                                                                 |
 | **feedback**                | react with 👍 (good), 👌 (okay) or 👎 (bad) on any bot message                                                                                                                                                                                                 |
+
+## Developer Tools & Testing Options
+
+### Intent Detection Dry Run Mode
+
+The bot includes a debug feature called Intent Detection Dry Run Mode. When enabled (default is true), it will:
+
+1. Run intent detection on user messages as normal
+2. Return detailed debug information about the intent detected
+3. **NOT** actually invoke the intent handler implementation
+
+This is useful for:
+- Testing how the intent detection system classifies different messages
+- Seeing what workspace would be suggested for a given query
+- Debugging intent detection without executing any actions
+
+To enable/disable this feature, set the `INTENT_DETECTION_DRY_RUN` environment variable:
+
+```dotenv
+# Enable dry run mode (default)
+INTENT_DETECTION_DRY_RUN=true  
+
+# Disable dry run mode (normal operation)
+INTENT_DETECTION_DRY_RUN=false
+```
+
+When enabled, the bot will respond with messages like:
+- `✅ DRY RUN: Intent 'github_issue_summary' detected (confidence: 85.2%) with suggested workspace 'gravityforms'`
+- A detailed breakdown of the intent detection results
+- Information about what handler would have been invoked

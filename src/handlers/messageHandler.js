@@ -15,7 +15,8 @@ import {
 	intentRoutingEnabled,
 	intentConfidenceThreshold, 
 	fallbackWorkspace,
-	intentProvider
+	intentProvider,
+	intentDetectionDryRunMode
 } from '../config.js';
 
 // --- Service Imports ---
@@ -461,6 +462,87 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                     slack, octokit, thinkingMessageTs,
                     intentResult: intentDetectionResult // Fix the variable name here
                 };
+                
+                // Check if we're in dry run mode
+                if (intentDetectionDryRunMode) {
+                    console.log(`[Msg Handler] 🔍 DRY RUN MODE: Intent '${intent}' detected but not invoking handler.`);
+                    
+                    // Update thinking message to indicate it's a dry run
+                    await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { 
+                        text: `✅ DRY RUN: Intent '${intent}' detected (confidence: ${(confidence * 100).toFixed(1)}%) with suggested workspace '${suggestedWorkspace || 'none'}'` 
+                    });
+                    
+                    // Update debug info
+                    intentDebugInfo.intentImplemented = false;
+                    intentDebugInfo.finalWorkspace = suggestedWorkspace || githubWorkspaceSlug || fallbackWorkspace;
+                    
+                    // Post detailed debug message
+                    try {
+                        const dryRunMessageBlocks = [
+                            {
+                                type: "section",
+                                text: {
+                                    type: "mrkdwn",
+                                    text: `*🔍 DRY RUN MODE RESULTS:*`
+                                }
+                            },
+                            {
+                                type: "section",
+                                fields: [
+                                    {
+                                        type: "mrkdwn",
+                                        text: `*Detected Intent:* ${intent || 'None'}`
+                                    },
+                                    {
+                                        type: "mrkdwn",
+                                        text: `*Confidence:* ${(confidence * 100).toFixed(1)}%`
+                                    },
+                                    {
+                                        type: "mrkdwn",
+                                        text: `*Suggested Workspace:* ${suggestedWorkspace || 'None'}`
+                                    },
+                                    {
+                                        type: "mrkdwn",
+                                        text: `*Handler Function:* handleGithub${intent.charAt(0).toUpperCase() + intent.slice(1)}Intent`
+                                    }
+                                ]
+                            },
+                            {
+                                type: "section",
+                                text: {
+                                    type: "mrkdwn",
+                                    text: `*Query:* \`${cleanedQuery.substring(0, 200)}\``
+                                }
+                            }
+                        ];
+                        
+                        // Post the debug info
+                        await slack.chat.postMessage({
+                            channel: channelId,
+                            thread_ts: replyTarget,
+                            text: "DRY RUN results for intent detection",
+                            blocks: dryRunMessageBlocks
+                        });
+                        
+                        // Also post the regular debug message
+                        const debugMessagePayload = createIntentDebugMessage(intentDebugInfo);
+                        debugMessagePayload.text = "Intent Detection Debug Info";
+                        debugMessagePayload.thread_ts = replyTarget;
+                        debugMessagePayload.channel = channelId;
+                        await slack.chat.postMessage(debugMessagePayload);
+                        
+                    } catch (debugError) {
+                        console.error("[Msg Handler] Error posting dry run debug message:", debugError);
+                    }
+                    
+                    // Set intentHandled to true to prevent normal execution path
+                    intentHandled = true;
+                    
+                    // Delete the thinking message since we're done
+                    await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, null);
+                    
+                    return; // Skip the rest of the intent detection/LLM flow
+                }
 
                 switch (intent) {
                     case 'greeting': // Add case for greeting intent
