@@ -485,6 +485,32 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                     intentResult: intentDetectionResult // Fix the variable name here
                 };
                 
+                // Format handler function name correctly
+                const formatHandlerName = (intentName) => {
+                    if (!intentName) return 'No handler (intent not detected)';
+                    
+                    // Special case for simple intents
+                    if (intentName === 'greeting') return 'handleGreetingIntent';
+                    
+                    // Handle github intents specially
+                    if (intentName.startsWith('github_')) {
+                        // Convert snake_case to PascalCase for the github part
+                        const pascalCase = intentName.substring(7) // Remove 'github_'
+                            .split('_')
+                            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                            .join('');
+                            
+                        return `handleGithub${pascalCase}Intent`;
+                    }
+                    
+                    // For any other intent, just convert to PascalCase
+                    const pascalCase = intentName.split('_')
+                        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                        .join('');
+                        
+                    return `handle${pascalCase}Intent`;
+                };
+                
                 // Check if we're in dry run mode
                 if (intentDetectionDryRunMode) {
                     console.log(`[Msg Handler] 🔍 DRY RUN MODE: Intent '${intent}' detected but not invoking handler.`);
@@ -541,32 +567,6 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                             .map((ws, idx) => `${idx + 1}. *${ws.name}* (${(ws.confidence * 100).toFixed(1)}%)`)
                             .join("\n");
                     }
-                    
-                    // Format handler function name correctly
-                    const formatHandlerName = (intentName) => {
-                        if (!intentName) return 'No handler (intent not detected)';
-                        
-                        // Special case for simple intents
-                        if (intentName === 'greeting') return 'handleGreetingIntent';
-                        
-                        // Handle github intents specially
-                        if (intentName.startsWith('github_')) {
-                            // Convert snake_case to PascalCase for the github part
-                            const pascalCase = intentName.substring(7) // Remove 'github_'
-                                .split('_')
-                                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-                                .join('');
-                                
-                            return `handleGithub${pascalCase}Intent`;
-                        }
-                        
-                        // For any other intent, just convert to PascalCase
-                        const pascalCase = intentName.split('_')
-                            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-                            .join('');
-                            
-                        return `handle${pascalCase}Intent`;
-                    };
                     
                     // Post detailed debug message
                     try {
