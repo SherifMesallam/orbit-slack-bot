@@ -489,13 +489,41 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                 if (intentDetectionDryRunMode) {
                     console.log(`[Msg Handler] 🔍 DRY RUN MODE: Intent '${intent}' detected but not invoking handler.`);
                     
+                    // Determine if the intent handler is actually implemented
+                    let intentImplemented = false;
+                    const handlerFunctionName = formatHandlerName(intent);
+                    
+                    // Check if handlers are imported and available
+                    switch (intent) {
+                        case 'greeting':
+                            intentImplemented = typeof handleGreetingIntent === 'function';
+                            break;
+                        case 'github_release_info':
+                            intentImplemented = typeof handleGithubReleaseInfoIntent === 'function';
+                            break;
+                        case 'github_pr_review':
+                            intentImplemented = typeof handleGithubPrReviewIntent === 'function';
+                            break;
+                        case 'github_issue_analysis':
+                            intentImplemented = typeof handleGithubIssueAnalysisIntent === 'function';
+                            break;
+                        case 'github_issue_summary':
+                            intentImplemented = typeof handleGithubIssueSummaryIntent === 'function';
+                            break;
+                        case 'github_api_query':
+                            intentImplemented = typeof handleGithubApiQueryIntent === 'function';
+                            break;
+                        default:
+                            intentImplemented = false;
+                    }
+                    
                     // Update thinking message to indicate it's a dry run
                     await updateOrDeleteThinkingMessage(thinkingMessageTs, slack, channelId, { 
                         text: `✅ DRY RUN: Intent '${intent}' detected (confidence: ${(confidence * 100).toFixed(1)}%) with suggested workspace '${suggestedWorkspace || 'none'}'` 
                     });
                     
                     // Update debug info
-                    intentDebugInfo.intentImplemented = false;
+                    intentDebugInfo.intentImplemented = intentImplemented;
                     intentDebugInfo.finalWorkspace = suggestedWorkspace || githubWorkspaceSlug || fallbackWorkspace;
                     
                     // Format ranked intents for display
@@ -513,6 +541,32 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                             .map((ws, idx) => `${idx + 1}. *${ws.name}* (${(ws.confidence * 100).toFixed(1)}%)`)
                             .join("\n");
                     }
+                    
+                    // Format handler function name correctly
+                    const formatHandlerName = (intentName) => {
+                        if (!intentName) return 'No handler (intent not detected)';
+                        
+                        // Special case for simple intents
+                        if (intentName === 'greeting') return 'handleGreetingIntent';
+                        
+                        // Handle github intents specially
+                        if (intentName.startsWith('github_')) {
+                            // Convert snake_case to PascalCase for the github part
+                            const pascalCase = intentName.substring(7) // Remove 'github_'
+                                .split('_')
+                                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                                .join('');
+                                
+                            return `handleGithub${pascalCase}Intent`;
+                        }
+                        
+                        // For any other intent, just convert to PascalCase
+                        const pascalCase = intentName.split('_')
+                            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                            .join('');
+                            
+                        return `handle${pascalCase}Intent`;
+                    };
                     
                     // Post detailed debug message
                     try {
@@ -541,7 +595,20 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                                     },
                                     {
                                         type: "mrkdwn",
-                                        text: `*Handler Function:* handleGithub${intent.charAt(0).toUpperCase() + intent.slice(1)}Intent`
+                                        text: `*Handler Function:* ${formatHandlerName(intent)}`
+                                    }
+                                ]
+                            },
+                            {
+                                type: "section",
+                                fields: [
+                                    {
+                                        type: "mrkdwn",
+                                        text: `*Implementation Status:* ${intentImplemented ? '✅ Implemented' : '❌ Not Implemented'}`
+                                    },
+                                    {
+                                        type: "mrkdwn",
+                                        text: `*Would Execute:* ${intentImplemented ? 'Yes' : 'No - Fallback to LLM'}`
                                     }
                                 ]
                             },
