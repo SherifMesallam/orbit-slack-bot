@@ -1023,18 +1023,7 @@ export async function handleGithubPrReviewIntent(intentContext) {
             workspaceSlug = 'gravityforms';
         }
         
-        // Check if repo has a gravityforms prefix and strip it if needed
-        if (repo.startsWith("gravityforms") && repo !== "gravityforms") {
-            // For repositories like "gravityformsstripe", use "stripe" as workspace
-            const repoWithoutPrefix = repo.replace("gravityforms", "");
-            if (repoWithoutPrefix.length > 0) {
-                workspaceSlug = repoWithoutPrefix;
-                console.log(`[CommandHandler] Debug - Extracted workspace from repo: ${workspaceSlug}`);
-            } else {
-                // If the prefix removal results in an empty string, use the full name
-                workspaceSlug = repo;
-            }
-        }
+
         
         // Override with explicit workspace if specified (maintaining backward compatibility)
         const workspacePattern = /#([a-zA-Z0-9._-]+)/i;
