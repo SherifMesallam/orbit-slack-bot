@@ -58,7 +58,7 @@ export const WORKSPACE_OVERRIDE_COMMAND_PREFIX = '#';
 export const intentRoutingEnabled = process.env.INTENT_ROUTING_ENABLED === 'true' || true; // Default: true
 
 /** @type {boolean} When true, runs intent detection but skips invoking actual handler implementation, returning only debug info. */
-export const intentDetectionDryRunMode = process.env.INTENT_DETECTION_DRY_RUN || false; // Default: true
+export const intentDetectionDryRunMode = process.env.INTENT_DETECTION_DRY_RUN === 'true' || false; // Default: false
 
 /** @type {string} Name of the intent detection provider to use ('none', 'gemini', etc.). Matches keys in intentDetectionService.js. */
 export const intentProvider = process.env.INTENT_PROVIDER || 'gemini'; // Default: 'gemini'
