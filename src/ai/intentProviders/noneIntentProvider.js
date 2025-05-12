@@ -43,7 +43,8 @@ export async function detectIntent(query, availableIntents = [], availableWorksp
 		intent: null, 
 		confidence: 0, 
 		suggestedWorkspace: workspace,
-		rankedWorkspaces: rankedWorkspaces
+		rankedWorkspaces: rankedWorkspaces,
+		rankedIntents: []
 	};
 }
 

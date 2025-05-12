@@ -59,7 +59,7 @@ export async function detectIntentAndWorkspace(query, availableIntents = [], ava
             !result.hasOwnProperty('suggestedWorkspace')) { // suggestedWorkspace can be null, but key must exist
              console.error(`[Intent Service] Provider '${providerKey}' returned an invalid result structure:`, result);
              // Return a default safe response if the provider's result is malformed.
-            return { intent: null, confidence: 0, suggestedWorkspace: null, rankedWorkspaces: [] };
+            return { intent: null, confidence: 0, suggestedWorkspace: null, rankedWorkspaces: [], rankedIntents: [] };
         }
 
         // Ensure confidence is within a reasonable range (optional, but good practice)
@@ -82,7 +82,7 @@ export async function detectIntentAndWorkspace(query, availableIntents = [], ava
         // Catch errors during the provider's execution.
         console.error(`[Intent Service] Error executing intent detection with provider '${providerKey}':`, error);
         // Return a default safe response on error.
-        return { intent: null, confidence: 0, suggestedWorkspace: null, rankedWorkspaces: [] };
+        return { intent: null, confidence: 0, suggestedWorkspace: null, rankedWorkspaces: [], rankedIntents: [] };
     }
 }
 
