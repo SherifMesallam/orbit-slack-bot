@@ -16,7 +16,8 @@ import {
 	intentConfidenceThreshold, 
 	fallbackWorkspace,
 	intentProvider,
-	intentDetectionDryRunMode
+	intentDetectionDryRunMode,
+	slackDebugOutputEnabled
 } from '../config.js';
 
 // --- Service Imports ---
@@ -636,19 +637,27 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                         ];
                         
                         // Post the debug info
-                        await slack.chat.postMessage({
-                            channel: channelId,
-                            thread_ts: replyTarget,
-                            text: "DRY RUN results for intent detection",
-                            blocks: dryRunMessageBlocks
-                        });
+                        if (slackDebugOutputEnabled || intentDetectionDryRunMode) {
+                            // Always show dry run info if explicitly requested with intentDetectionDryRunMode
+                            // Otherwise, only show if debug output is enabled
+                            await slack.chat.postMessage({
+                                channel: channelId,
+                                thread_ts: replyTarget,
+                                text: "DRY RUN results for intent detection",
+                                blocks: dryRunMessageBlocks
+                            });
+                        }
                         
                         // Also post the regular debug message
                         const debugMessagePayload = createIntentDebugMessage(intentDebugInfo);
                         debugMessagePayload.text = "Intent Detection Debug Info";
                         debugMessagePayload.thread_ts = replyTarget;
                         debugMessagePayload.channel = channelId;
-                        await slack.chat.postMessage(debugMessagePayload);
+                        
+                        // Only post debug messages if enabled in config
+                        if (slackDebugOutputEnabled) {
+                            await slack.chat.postMessage(debugMessagePayload);
+                        }
                         
                     } catch (debugError) {
                         console.error("[Msg Handler] Error posting dry run debug message:", debugError);
@@ -678,7 +687,11 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                             debugMessagePayload.text = "Intent Detection Debug Info";
                             debugMessagePayload.thread_ts = replyTarget;
                             debugMessagePayload.channel = channelId;
-                            await slack.chat.postMessage(debugMessagePayload);
+                            
+                            // Only post debug messages if enabled in config
+                            if (slackDebugOutputEnabled) {
+                                await slack.chat.postMessage(debugMessagePayload);
+                            }
                         } catch (debugError) {
                             console.error("[Msg Handler] Error posting intent debug message:", debugError);
                         }
@@ -702,7 +715,11 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                                 debugMessagePayload.text = "Intent Detection Debug Info";
                                 debugMessagePayload.thread_ts = replyTarget;
                                 debugMessagePayload.channel = channelId;
-                                await slack.chat.postMessage(debugMessagePayload);
+                                
+                                // Only post debug messages if enabled in config
+                                if (slackDebugOutputEnabled) {
+                                    await slack.chat.postMessage(debugMessagePayload);
+                                }
                             } catch (debugError) {
                                 console.error("[Msg Handler] Error posting intent debug message:", debugError);
                             }
@@ -727,7 +744,11 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                                 debugMessagePayload.text = "Intent Detection Debug Info";
                                 debugMessagePayload.thread_ts = replyTarget;
                                 debugMessagePayload.channel = channelId;
-                                await slack.chat.postMessage(debugMessagePayload);
+                                
+                                // Only post debug messages if enabled in config
+                                if (slackDebugOutputEnabled) {
+                                    await slack.chat.postMessage(debugMessagePayload);
+                                }
                             } catch (debugError) {
                                 console.error("[Msg Handler] Error posting intent debug message:", debugError);
                             }
@@ -752,7 +773,11 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                                 debugMessagePayload.text = "Intent Detection Debug Info";
                                 debugMessagePayload.thread_ts = replyTarget;
                                 debugMessagePayload.channel = channelId;
-                                await slack.chat.postMessage(debugMessagePayload);
+                                
+                                // Only post debug messages if enabled in config
+                                if (slackDebugOutputEnabled) {
+                                    await slack.chat.postMessage(debugMessagePayload);
+                                }
                             } catch (debugError) {
                                 console.error("[Msg Handler] Error posting intent debug message:", debugError);
                             }
@@ -777,7 +802,11 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                                 debugMessagePayload.text = "Intent Detection Debug Info";
                                 debugMessagePayload.thread_ts = replyTarget;
                                 debugMessagePayload.channel = channelId;
-                                await slack.chat.postMessage(debugMessagePayload);
+                                
+                                // Only post debug messages if enabled in config
+                                if (slackDebugOutputEnabled) {
+                                    await slack.chat.postMessage(debugMessagePayload);
+                                }
                             } catch (debugError) {
                                 console.error("[Msg Handler] Error posting intent debug message:", debugError);
                             }
@@ -802,7 +831,11 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                                 debugMessagePayload.text = "Intent Detection Debug Info";
                                 debugMessagePayload.thread_ts = replyTarget;
                                 debugMessagePayload.channel = channelId;
-                                await slack.chat.postMessage(debugMessagePayload);
+                                
+                                // Only post debug messages if enabled in config
+                                if (slackDebugOutputEnabled) {
+                                    await slack.chat.postMessage(debugMessagePayload);
+                                }
                             } catch (debugError) {
                                 console.error("[Msg Handler] Error posting intent debug message:", debugError);
                             }
@@ -826,7 +859,11 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                             debugMessagePayload.text = "Intent Detection Debug Info";
                             debugMessagePayload.thread_ts = replyTarget;
                             debugMessagePayload.channel = channelId;
-                            await slack.chat.postMessage(debugMessagePayload);
+                            
+                            // Only post debug messages if enabled in config
+                            if (slackDebugOutputEnabled) {
+                                await slack.chat.postMessage(debugMessagePayload);
+                            }
                         } catch (debugError) {
                             console.error("[Msg Handler] Error posting intent debug message:", debugError);
                         }
@@ -849,7 +886,11 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                              debugMessagePayload.text = "Intent Detection Debug Info";
                              debugMessagePayload.thread_ts = replyTarget;
                              debugMessagePayload.channel = channelId;
-                             await slack.chat.postMessage(debugMessagePayload);
+                             
+                             // Only post debug messages if enabled in config
+                             if (slackDebugOutputEnabled) {
+                                 await slack.chat.postMessage(debugMessagePayload);
+                             }
                          } catch (debugError) {
                              console.error("[Msg Handler] Error posting intent debug message:", debugError);
                          }
@@ -1033,7 +1074,9 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                         debugMessagePayload.text = "Intent Detection Debug Info";
                         debugMessagePayload.thread_ts = replyTarget;
                         debugMessagePayload.channel = channelId;
-                        await slack.chat.postMessage(debugMessagePayload);
+                        if (slackDebugOutputEnabled) {
+                            await slack.chat.postMessage(debugMessagePayload);
+                        }
                     } catch (debugError) {
                         console.error("[Msg Handler] Error posting intent debug message:", debugError);
                     }

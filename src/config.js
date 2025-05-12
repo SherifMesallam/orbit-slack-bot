@@ -60,6 +60,9 @@ export const intentRoutingEnabled = process.env.INTENT_ROUTING_ENABLED === 'true
 /** @type {boolean} When true, runs intent detection but skips invoking actual handler implementation, returning only debug info. */
 export const intentDetectionDryRunMode = process.env.INTENT_DETECTION_DRY_RUN === 'true' || false; // Default: false
 
+/** @type {boolean} When true, shows debug information in Slack messages (intent detection results, workspace selection, etc.) */
+export const slackDebugOutputEnabled = process.env.SLACK_DEBUG_OUTPUT_ENABLED === 'true' || false; // Default: false
+
 /** @type {string} Name of the intent detection provider to use ('none', 'gemini', etc.). Matches keys in intentDetectionService.js. */
 export const intentProvider = process.env.INTENT_PROVIDER || 'gemini'; // Default: 'gemini'
 
@@ -221,6 +224,9 @@ export function validateConfig() {
     }
     if (intentDetectionDryRunMode) {
         warnings.push("INTENT_DETECTION_DRY_RUN is enabled. Intent handlers will not be invoked, only detection debug info will be displayed.");
+    }
+    if (slackDebugOutputEnabled) {
+        warnings.push("SLACK_DEBUG_OUTPUT_ENABLED is enabled. Debug information will be shown in Slack messages.");
     }
     if (isNaN(intentConfidenceThreshold) || intentConfidenceThreshold < 0 || intentConfidenceThreshold > 1) {
          warnings.push(`Invalid INTENT_CONFIDENCE_THRESHOLD value: "${process.env.INTENT_CONFIDENCE_THRESHOLD}". Must be a number between 0 and 1. Using default: ${intentConfidenceThreshold}`);
