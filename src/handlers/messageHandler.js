@@ -956,7 +956,29 @@ export async function handleSlackMessageEventInternal(event, slack, octokit) {
                         });
                         if (historyResult.ok && historyResult.messages && historyResult.messages.length > 1) {
                             // Skip the first message (thread starter) and format the rest
-                            historyForLlm = historyResult.messages.slice(1).map(msg => {
+                            const allMessages = historyResult.messages.slice(1);
+                            
+                            // Filter out thinking messages
+                            const filteredMessages = allMessages.filter(msg => {
+                                // Filter out "Processing..." or thinking messages from the bot
+                                const isThinkingMessage = (msg.user === botUserId || msg.bot_id) && 
+                                    (msg.text?.includes(':hourglass_flowing_sand:') || 
+                                     msg.text?.includes('Processing') || 
+                                     msg.text?.includes('Thinking') ||
+                                     msg.text?.startsWith('✅') ||
+                                     msg.text?.startsWith('❌') ||
+                                     msg.text?.includes('Intent Detection Debug') ||
+                                     msg.text?.includes('DRY RUN') ||
+                                     msg.text?.includes('Analyzing') ||
+                                     msg.text?.includes('Fetching') ||
+                                     msg.text?.includes('Was this response helpful?') ||
+                                     msg.text?.includes('debug info'));
+                                return !isThinkingMessage;
+                            });
+                            
+                            console.log(`[Msg Handler] Filtered out ${allMessages.length - filteredMessages.length} thinking messages from history`);
+                            
+                            historyForLlm = filteredMessages.map(msg => {
                                 const prefix = (msg.user === botUserId || msg.bot_id) ? "Assistant:" : "User:";
                                 // Extract text, handling potential blocks structure later if needed
                                 const msgText = (msg.text || '').replace(/<@[^>]+>/g, '').trim(); // Basic mention removal
