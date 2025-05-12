@@ -1337,7 +1337,7 @@ export async function handleGithubApiQueryIntent(intentContext) {
         // Determine which workspaces to use
         // Use default GitHub workspace for API queries, or fallback to githubWorkspaceSlug
         let apiWorkspaceSlug = githubWorkspaceSlug || 'github';
-        let formatterWorkspaceSlug = formatterWorkspaceSlug || 'default';
+        let formatterWsSlug = formatterWorkspaceSlug || 'default';
         
         // FIXED: Validate that workspace slugs are not numeric
         if (/^\d+$/.test(apiWorkspaceSlug)) {
@@ -1345,13 +1345,13 @@ export async function handleGithubApiQueryIntent(intentContext) {
             apiWorkspaceSlug = 'github';
         }
         
-        if (/^\d+$/.test(formatterWorkspaceSlug)) {
-            console.log(`[CommandHandler] Debug - Formatter workspace slug cannot be numeric (${formatterWorkspaceSlug}). Using default.`);
-            formatterWorkspaceSlug = 'default';
+        if (/^\d+$/.test(formatterWsSlug)) {
+            console.log(`[CommandHandler] Debug - Formatter workspace slug cannot be numeric (${formatterWsSlug}). Using default.`);
+            formatterWsSlug = 'default';
         }
         
         console.log(`[CommandHandler] Extracted API query: "${apiQuery}"`);
-        console.log(`[CommandHandler] Using workspaces - API: ${apiWorkspaceSlug}, Formatter: ${formatterWorkspaceSlug}`);
+        console.log(`[CommandHandler] Using workspaces - API: ${apiWorkspaceSlug}, Formatter: ${formatterWsSlug}`);
         
         // Call the existing handler
         console.log(`[CommandHandler] Debug - About to call handleGithubApiCommand`);
@@ -1362,7 +1362,7 @@ export async function handleGithubApiQueryIntent(intentContext) {
             slack,
             localThinkingMessageTs,
             apiWorkspaceSlug,
-            formatterWorkspaceSlug
+            formatterWsSlug
         );
         console.log(`[CommandHandler] Debug - handleGithubApiCommand returned: ${result}`);
         return result;
